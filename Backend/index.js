@@ -6,11 +6,15 @@ const authRoutes = require('./src/routes/auth');
 const shipmentRoutes = require('./src/routes/shipments');
 const alertRoutes = require('./src/routes/alerts');
 const analyticsRoutes = require('./src/routes/analytics');
+const { honeypot } = require('./src/middleware/honeypotMiddleware');
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// Honeypot trap — runs before all routes
+app.use(honeypot);
 
 // Routes
 app.use('/api/auth', authRoutes);
