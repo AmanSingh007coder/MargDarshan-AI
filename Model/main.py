@@ -508,7 +508,7 @@ async def reroute(req: RerouteRequest):
     """
     Calculate a safe reroute from current truck position to destination,
     avoiding the current risky zone.
-    Called automatically when risk_score >= 80, or manually via dashboard.
+    Creates multiple offset waypoints to force OSRM to take a significantly different path.
     """
     dest_title = req.destination_city.strip().title()
 
@@ -517,15 +517,50 @@ async def reroute(req: RerouteRequest):
 
     dest_lat, dest_lng = CITY_COORDS[dest_title]
 
-    # Get rerouted path — OSRM will avoid the danger zone via offset waypoint
+    # Calculate direction from current to destination
+    dlat = dest_lat - req.current_lat
+    dlng = dest_lng - req.current_lng
+    dist = math.sqrt(dlat**2 + dlng**2)
+
+    if dist == 0:
+        raise HTTPException(status_code=400, detail="Already at destination")
+
+    # Normalize direction
+    dir_lat = dlat / dist
+    dir_lng = dlng / dist
+
+    # Create two perpendicular offset waypoints (left and right)
+    # Try to force a U-turn or sharp deviation from current path
+    offset_distance = max(0.3, dist * 0.2)  # 20-30% of distance to destination, minimum 0.3 degrees
+
+    # Left turn offset
+    left_lat = req.current_lat - dir_lng * offset_distance
+    left_lng = req.current_lng + dir_lat * offset_distance
+
+    # Right turn offset
+    right_lat = req.current_lat + dir_lng * offset_distance
+    right_lng = req.current_lng - dir_lat * offset_distance
+
+    # Try left route first
     route = await get_osrm_route(
         origin_lat=req.current_lat,
         origin_lng=req.current_lng,
         dest_lat=dest_lat,
         dest_lng=dest_lng,
-        avoid_lat=req.current_lat,
-        avoid_lng=req.current_lng,
+        avoid_lat=left_lat,
+        avoid_lng=left_lng,
     )
+
+    # If left route fails or is same as original, try right route
+    if route["error"] or len(route["waypoints"]) < 2:
+        route = await get_osrm_route(
+            origin_lat=req.current_lat,
+            origin_lng=req.current_lng,
+            dest_lat=dest_lat,
+            dest_lng=dest_lng,
+            avoid_lat=right_lat,
+            avoid_lng=right_lng,
+        )
 
     if route["error"]:
         raise HTTPException(status_code=502, detail=f"Reroute failed: {route['error']}")

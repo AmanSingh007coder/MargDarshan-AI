@@ -136,8 +136,11 @@ export default function LiveMap() {
   const [shipments, setShipments] = useState([]);
   const [positions, setPositions] = useState({});
   const [risks, setRisks]         = useState({});
+  const [reroutes, setReroutes]   = useState({});  // id → reroute waypoints
+  const [routeStartTimes, setRouteStartTimes] = useState({});  // id → when reroute started
   const [loading, setLoading]     = useState(true);
   const [selectedId, setSelectedId] = useState(null);
+  const [rerouteLoading, setRerouteLoading] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -171,10 +174,14 @@ export default function LiveMap() {
     const autoFulfill  = [];
 
     for (const s of shipments) {
-      const wps = routeCache.current[s.id];
+      // Use rerouted path if available, otherwise original
+      const wps = reroutes[s.id] || routeCache.current[s.id];
       if (!wps) continue;
       const speed = SPEED_KMPH[s.vehicle_type] || 55;
-      const pos = getCurrentPosition(wps, s.created_at, speed);
+
+      // If rerouted, calculate from reroute start time; otherwise from shipment creation
+      const startTime = routeStartTimes[s.id] || s.created_at;
+      const pos = getCurrentPosition(wps, startTime, speed);
       if (!pos) continue;
       newPositions[s.id] = pos;
       if (pos.progress >= 1.0) autoFulfill.push(s.id);
@@ -208,7 +215,7 @@ export default function LiveMap() {
       riskUpdates[s.id] = { score: 15, severity: 'LOW' };
     });
     setRisks(riskUpdates);
-  }, [shipments]);
+  }, [shipments, routeStartTimes, reroutes]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -216,56 +223,64 @@ export default function LiveMap() {
 
     // Show only selected shipment's route with completed/remaining split
     for (const s of shipments) {
-      const wps = routeCache.current[s.id];
       const pos = positions[s.id];
+      // Use active route (original or rerouted)
+      const currentWps = reroutes[s.id] || routeCache.current[s.id];
+      const originalWps = routeCache.current[s.id];
+      const isRerouted = !!reroutes[s.id];
 
-      if (s.id === selectedId && wps && pos) {
-        // Draw full route in faded color (remaining path)
+      if (s.id === selectedId && currentWps && pos) {
+        // Draw full current route in light gray (remaining path)
         if (!polyRefs.current[s.id]) {
-          const fullPoly = L.polyline(wps, { color: 'rgba(6,182,212,0.2)', weight: 2 }).addTo(map);
+          const fullPoly = L.polyline(currentWps, { color: '#e5e7eb', weight: 3, opacity: 0.6 }).addTo(map);
           polyRefs.current[s.id] = fullPoly;
         }
 
         // Draw completed portion in bright cyan
         if (!polyRefs.current[`${s.id}_done`]) {
-          const totalKm = wps.reduce((acc, _, i) =>
-            i === 0 ? acc : acc + haversineKm(wps[i-1][0], wps[i-1][1], wps[i][0], wps[i][1]), 0);
+          const totalKm = currentWps.reduce((acc, _, i) =>
+            i === 0 ? acc : acc + haversineKm(currentWps[i-1][0], currentWps[i-1][1], currentWps[i][0], currentWps[i][1]), 0);
           const targetKm = pos.coveredKm;
           let covered = 0;
-          const donePts = [wps[0]];
-          for (let i = 1; i < wps.length; i++) {
-            const seg = haversineKm(wps[i-1][0],wps[i-1][1],wps[i][0],wps[i][1]);
+          const donePts = [currentWps[0]];
+          for (let i = 1; i < currentWps.length; i++) {
+            const seg = haversineKm(currentWps[i-1][0], currentWps[i-1][1], currentWps[i][0], currentWps[i][1]);
             if (covered + seg > targetKm) break;
             covered += seg;
-            donePts.push(wps[i]);
+            donePts.push(currentWps[i]);
           }
-          const donePoly = L.polyline(donePts, { color: '#06b6d4', weight: 4, opacity: 0.9 }).addTo(map);
+          const donePoly = L.polyline(donePts, { color: '#00d9ff', weight: 6, opacity: 1 }).addTo(map);
           polyRefs.current[`${s.id}_done`] = donePoly;
         } else {
           // Update completed portion as shipment moves
-          const totalKm = wps.reduce((acc, _, i) =>
-            i === 0 ? acc : acc + haversineKm(wps[i-1][0], wps[i-1][1], wps[i][0], wps[i][1]), 0);
+          const totalKm = currentWps.reduce((acc, _, i) =>
+            i === 0 ? acc : acc + haversineKm(currentWps[i-1][0], currentWps[i-1][1], currentWps[i][0], currentWps[i][1]), 0);
           const targetKm = pos.coveredKm;
           let covered = 0;
-          const donePts = [wps[0]];
-          for (let i = 1; i < wps.length; i++) {
-            const seg = haversineKm(wps[i-1][0],wps[i-1][1],wps[i][0],wps[i][1]);
+          const donePts = [currentWps[0]];
+          for (let i = 1; i < currentWps.length; i++) {
+            const seg = haversineKm(currentWps[i-1][0], currentWps[i-1][1], currentWps[i][0], currentWps[i][1]);
             if (covered + seg > targetKm) break;
             covered += seg;
-            donePts.push(wps[i]);
+            donePts.push(currentWps[i]);
           }
           polyRefs.current[`${s.id}_done`].setLatLngs(donePts);
         }
+
+        // Show original route in faded white if rerouted (for reference)
+        if (isRerouted && originalWps && !polyRefs.current[`${s.id}_original`]) {
+          const origPoly = L.polyline(originalWps, { color: '#ffffff', weight: 2, opacity: 0.2, dashArray: '5,5' }).addTo(map);
+          polyRefs.current[`${s.id}_original`] = origPoly;
+        }
       } else {
         // Hide other routes
-        if (polyRefs.current[s.id]) {
-          map.removeLayer(polyRefs.current[s.id]);
-          delete polyRefs.current[s.id];
-        }
-        if (polyRefs.current[`${s.id}_done`]) {
-          map.removeLayer(polyRefs.current[`${s.id}_done`]);
-          delete polyRefs.current[`${s.id}_done`];
-        }
+        ['', '_done', '_original'].forEach(suffix => {
+          const key = `${s.id}${suffix}`;
+          if (polyRefs.current[key]) {
+            map.removeLayer(polyRefs.current[key]);
+            delete polyRefs.current[key];
+          }
+        });
       }
     }
 
@@ -277,15 +292,20 @@ export default function LiveMap() {
     const emoji = shipment?.type === 'water' ? '🚢' : '🚛';
 
     if (pos && shipment) {
+      const reason = getCriticalityReason(risk);
+      const hasReroute = reroutes[selectedId];
+
       const popupHtml = `
-        <div style="font-family:monospace;color:#1a1a2e;min-width:220px;font-size:12px">
-          <div style="color:#0066cc;font-weight:900;font-size:13px;margin-bottom:6px">${shipment.display_id}</div>
+        <div style="font-family:monospace;color:#1a1a2e;min-width:240px;font-size:12px">
+          <div style="color:#0066cc;font-weight:900;font-size:13px;margin-bottom:4px">${shipment.display_id}</div>
           <div style="color:#333;font-size:11px;margin-bottom:8px">${shipment.source?.name} → ${shipment.destination?.name}</div>
-          <div style="margin-bottom:8px">
+          <div style="margin-bottom:8px;display:flex;gap:6px;align-items:center">
             <span style="background:${color}22;color:${color};border:1px solid ${color}44;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:900">
               ${riskLabel(risk.score)} ${risk.score.toFixed(0)}%
             </span>
+            ${hasReroute ? `<span style="background:#10b98122;color:#10b981;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:900">✓ REROUTING</span>` : ''}
           </div>
+          ${risk.score >= 60 ? `<div style="color:#dc2626;background:#dc262622;padding:6px;border-radius:4px;margin-bottom:6px;font-size:11px;font-weight:700">⚠ ${reason}</div>` : ''}
           <div style="border-top:1px solid rgba(0,0,0,0.1);padding-top:8px">
             <table style="width:100%;font-size:11px;border-collapse:collapse">
               <tr><td style="color:#555;padding:3px 0;padding-right:12px;font-weight:600">Covered</td><td style="color:#000;text-align:right;font-weight:900">${pos.coveredKm} km</td></tr>
@@ -304,7 +324,7 @@ export default function LiveMap() {
         markerRefs.current[selectedId].getPopup()?.setContent(popupHtml);
       } else {
         const m = L.marker([pos.lat, pos.lng], { icon: makeMarkerIcon(emoji, color) })
-          .bindPopup(popupHtml, { maxWidth: 260, closeButton: false })
+          .bindPopup(popupHtml, { maxWidth: 280, closeButton: false })
           .addTo(map);
         markerRefs.current[selectedId] = m;
       }
@@ -317,11 +337,102 @@ export default function LiveMap() {
         delete markerRefs.current[id];
       }
     }
-  }, [positions, risks, shipments, selectedId]);
+  }, [positions, risks, reroutes, shipments, selectedId]);
+
+  const triggerReroute = async (shipmentId) => {
+    const shipment = shipments.find(s => s.id === shipmentId);
+    const pos = positions[shipmentId];
+    if (!shipment || !pos) {
+      console.warn('Cannot reroute: shipment or position missing');
+      return;
+    }
+
+    setRerouteLoading(true);
+    try {
+      const corridor = resolveCorridor(shipment.source?.name, shipment.destination?.name);
+      console.log(`📍 Rerouting from (${pos.lat.toFixed(2)}, ${pos.lng.toFixed(2)}) to ${shipment.destination?.name}`);
+      const { data } = await axios.post(`${ML_URL}/reroute`, {
+        current_lat: pos.lat,
+        current_lng: pos.lng,
+        destination_city: shipment.destination?.name,
+        corridor,
+      }, { timeout: 8000 });
+
+      if (!data.new_route || data.new_route.length < 2) {
+        console.warn('Reroute returned invalid route');
+        return;
+      }
+
+      // Ensure waypoints are in correct format [lat, lng]
+      const formattedWaypoints = data.new_route.map(w =>
+        Array.isArray(w) ? w : [w.lat, w.lng]
+      );
+
+      console.log(`✓ Reroute successful: ${formattedWaypoints.length} waypoints, distance: ${data.distance_km}km`);
+
+      // **Store reroute (shipment now uses this path)**
+      setReroutes(prev => ({ ...prev, [shipmentId]: formattedWaypoints }));
+      // **Set route start time to now (recalculate ETA from reroute point)**
+      setRouteStartTimes(prev => ({ ...prev, [shipmentId]: new Date().toISOString() }));
+
+      console.log(`🔄 Shipment ${shipmentId} now traveling on rerouted path`);
+    } catch (err) {
+      console.error('❌ Reroute failed:', err.message);
+    } finally {
+      setRerouteLoading(false);
+    }
+  };
+
+  const getCriticalityReason = (risk) => {
+    if (!risk) return 'High risk zone';
+
+    const breakdown = risk.breakdown || {};
+    let factors = [
+      { name: 'Landslide detected', score: parseFloat(breakdown.landslide_risk) || 0 },
+      { name: 'Protest zone', score: parseFloat(breakdown.protest_risk) || 0 },
+      { name: 'Severe weather', score: parseFloat(breakdown.weather_risk) || 0 },
+      { name: 'Traffic congestion', score: parseFloat(breakdown.traffic_risk) || 0 },
+    ];
+
+    // Boost score if static factors detected
+    if (risk.landslide_nearby) {
+      factors[0].score = Math.max(factors[0].score, 35);
+    }
+    if (risk.protest_severity && risk.protest_severity > 0) {
+      factors[1].score = Math.max(factors[1].score, Math.ceil(risk.protest_severity * 7));
+    }
+
+    // Check if any factor has meaningful score
+    const topFactor = factors.sort((a, b) => b.score - a.score)[0];
+    if (topFactor && topFactor.score > 0) {
+      return topFactor.name;
+    }
+
+    // Fallback: if no breakdown but risk is high, suggest based on model's internal assessment
+    if (risk.score > 80) {
+      // Different reasons based on risk patterns
+      if (risk.severity === 'CRITICAL') {
+        return 'Critical route conditions detected';
+      }
+      return 'High-risk corridor area';
+    }
+
+    return 'High risk zone';
+  };
 
   useEffect(() => {
     loadShipments();
   }, [loadShipments]);
+
+  // Auto-reroute when risk > 80 (immediately trigger reroute)
+  useEffect(() => {
+    for (const [shipmentId, risk] of Object.entries(risks)) {
+      if (risk && risk.score > 80 && !reroutes[shipmentId] && !rerouteLoading) {
+        console.log(`🚨 Critical risk detected for ${shipmentId}: ${risk.score}% - Triggering reroute`);
+        triggerReroute(shipmentId);
+      }
+    }
+  }, [risks, reroutes, rerouteLoading, triggerReroute]);
 
   useEffect(() => {
     if (!shipments.length) return;
@@ -360,6 +471,21 @@ export default function LiveMap() {
         </div>
       )}
 
+      {selectedShip && selectedRisk && selectedRisk.score >= 60 && (
+        <div className="bg-red-500/20 border border-red-500/40 rounded-xl p-4">
+          <div className="flex items-center gap-3">
+            <AlertTriangle size={20} className="text-red-400" />
+            <div>
+              <p className="text-red-300 font-black text-sm uppercase">Risk Alert: {getCriticalityReason(selectedRisk)}</p>
+              <p className="text-red-200 text-xs mt-1">Risk Score: {selectedRisk.score.toFixed(0)}% — {riskLabel(selectedRisk.score)}</p>
+            </div>
+            {reroutes[selectedId] && (
+              <span className="ml-auto bg-emerald-500/30 text-emerald-300 px-3 py-1 rounded-lg text-xs font-black">✓ Rerouting</span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Map */}
       <div className="rounded-2xl overflow-hidden border border-white/5" style={{ height: '75vh' }}>
         <div ref={containerRef} className="w-full h-full" />
@@ -378,9 +504,17 @@ export default function LiveMap() {
                 ? 'border-cyan-500 bg-cyan-500/5 ring-1 ring-cyan-500/30'
                 : 'border-white/5 hover:border-white/10'
             }`}>
-            <p className="text-cyan-400 font-mono font-black text-sm mb-2">{s.display_id}</p>
+            <div className="flex items-start justify-between mb-2">
+              <p className="text-cyan-400 font-mono font-black text-sm">{s.display_id}</p>
+              {reroutes[s.id] && (
+                <span className="text-[8px] bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded font-black">REROUTED</span>
+              )}
+            </div>
             <p className="text-white text-xs font-bold mb-1">{s.source?.name} → {s.destination?.name}</p>
             <p className="text-slate-500 text-[10px]">{s.vehicle_type}</p>
+            {risks[s.id] && risks[s.id].score > 80 && (
+              <p className="text-red-400 text-[10px] mt-2">🚨 Critical risk detected</p>
+            )}
           </button>
         ))}
       </div>
