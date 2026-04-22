@@ -28,36 +28,33 @@ function DashboardLayout({ children }) {
   ];
 
   return (
-    <div className="flex min-h-screen bg-[#020617] text-white font-sans">
-      <aside className="w-64 border-r border-white/5 bg-[#050810] flex flex-col fixed h-full z-50">
-        <div className="p-8 flex items-center gap-3">
-          <span className="font-black text-white uppercase italic tracking-tighter text-xl">MargDarshan</span>
-        </div>
-        <nav className="flex-1 px-4 space-y-1">
-          {navItems.map(item => (
-            <Link key={item.path} to={item.path}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all ${
-                location.pathname === item.path || location.pathname.startsWith(item.path + '/')
-                  ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
-                  : 'text-slate-500 hover:text-white hover:bg-white/5'
-              }`}>
-              <item.icon size={16} />{item.label}
-            </Link>
-          ))}
-        </nav>
-        <div className="p-6 border-t border-white/5">
-          <Link to="/" className="flex items-center gap-3 px-4 py-3 text-[10px] font-black text-slate-500 hover:text-red-500 transition uppercase tracking-widest">
-            <LogOut size={16} /> Logout
-          </Link>
-        </div>
-      </aside>
-
-      <main className="flex-1 ml-64 min-h-screen">
-        <header className="h-16 border-b border-white/5 flex items-center px-10 bg-[#020617]/50 backdrop-blur-xl sticky top-0 z-40">
-          <div className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> System Status: Operational
+    <div className="flex flex-col min-h-screen bg-[#020617] text-white font-sans">
+      <header className="border-b border-white/5 bg-[#050810] sticky top-0 z-50 backdrop-blur-xl">
+        <div className="px-10 py-6 flex items-center justify-between">
+          <div className="flex items-center gap-8">
+            <span className="font-black text-white uppercase italic tracking-tighter text-xl">MargDarshan-AI</span>
+            <nav className="flex items-center gap-6 border-l border-white/5 pl-8">
+              {navItems.map(item => (
+                <Link key={item.path} to={item.path}
+                  className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] transition-all py-2 px-3 rounded-lg ${
+                    location.pathname === item.path || location.pathname.startsWith(item.path + '/')
+                      ? 'text-blue-400 bg-blue-500/10 border border-blue-500/20'
+                      : 'text-slate-400 hover:text-white hover:bg-white/5'
+                  }`}>
+                  <item.icon size={14} />{item.label}
+                </Link>
+              ))}
+            </nav>
           </div>
-        </header>
+          <div className="flex items-center gap-6">
+            <Link to="/" className="flex items-center gap-2 px-3 py-2 text-[10px] font-black text-slate-400 hover:text-red-500 transition uppercase tracking-widest rounded-lg hover:bg-red-500/10">
+              <LogOut size={14} /> Logout
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1 min-h-screen">
         <section className="p-8">{children}</section>
       </main>
     </div>

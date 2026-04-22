@@ -1,66 +1,38 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibregl from 'maplibre-gl';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import {
   Play, Pause, ArrowLeft,
-  Loader2, AlertTriangle, SkipForward, Zap,
+  Loader2, AlertTriangle, SkipForward, Zap
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import useSimulationStore from '../store/useSimulationStore';
 
 const ML_URL    = import.meta.env.VITE_ML_URL || 'http://localhost:8888';
 const OSRM_BASE = 'https://router.project-osrm.org/route/v1/driving';
-const STEP_DELAY = { 1: 900, 2: 450, 5: 180, 10: 90 };
+const STEP_DELAY = 180; // Fixed speed optimized for smooth visual tracking
 
 const CORRIDOR_PAIRS = {
-  'Mumbai-Pune':         [['Mumbai','Pune'],['Pune','Mumbai']],
-  'Pune-Nashik':         [['Pune','Nashik'],['Nashik','Pune']],
-  'Mumbai-Goa':          [['Mumbai','Goa'],['Goa','Mumbai']],
+  'Mumbai-Pune': [['Mumbai','Pune'],['Pune','Mumbai']],
+  'Pune-Nashik': [['Pune','Nashik'],['Nashik','Pune']],
+  'Mumbai-Goa': [['Mumbai','Goa'],['Goa','Mumbai']],
   'Bengaluru-Mangaluru': [['Bengaluru','Mangaluru'],['Mangaluru','Bengaluru']],
-  'Kochi-Kozhikode':     [['Kochi','Kozhikode'],['Kozhikode','Kochi']],
+  'Kochi-Kozhikode': [['Kochi','Kozhikode'],['Kozhikode','Kochi']],
 };
+
 function resolveCorridor(src, dst) {
   for (const [name, pairs] of Object.entries(CORRIDOR_PAIRS))
     if (pairs.some(([o, d]) => o === src && d === dst)) return name;
   return 'Mumbai-Pune';
 }
 
-function riskColor(s) {
-  if (s >= 80) return '#ef4444'; if (s >= 60) return '#f97316';
-  if (s >= 40) return '#eab308'; return '#10b981';
-}
-const SEV_STYLE = {
-  CRITICAL: 'text-red-400 bg-red-500/10 border-red-500/30',
-  HIGH:     'text-orange-400 bg-orange-500/10 border-orange-500/30',
-  MEDIUM:   'text-yellow-400 bg-yellow-500/10 border-yellow-500/30',
-  LOW:      'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
-};
-
-function RiskGauge({ score, severity }) {
-  const R = 38, C = 2 * Math.PI * R;
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <svg width={96} height={96} viewBox="0 0 96 96">
-        <circle cx={48} cy={48} r={R} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth={8} />
-        <circle cx={48} cy={48} r={R} fill="none"
-          stroke={riskColor(score)} strokeWidth={8}
-          strokeDasharray={C} strokeDashoffset={C - (score / 100) * C}
-          strokeLinecap="round" transform="rotate(-90 48 48)"
-          style={{ transition: 'stroke-dashoffset 0.4s ease, stroke 0.4s ease' }} />
-        <text x={48} y={52} textAnchor="middle" fill="white" fontSize={18} fontWeight={900}>{score.toFixed(0)}</text>
-      </svg>
-      <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${SEV_STYLE[severity] || SEV_STYLE.LOW}`}>{severity}</span>
-    </div>
-  );
-}
-
-// ── Shipment picker (no shipmentId) ──────────────────────────────────────────
+// ── Compact Shipment Picker ──────────────────────────────────────────
 
 function SimulatePicker() {
   const [shipments, setShipments] = useState([]);
-  const [loading, setLoading]     = useState(true);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     supabase.from('shipments')
@@ -71,76 +43,94 @@ function SimulatePicker() {
   }, []);
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-center gap-3">
-        <div className="p-2 bg-cyan-500/10 rounded-xl"><Zap size={20} className="text-cyan-400" /></div>
-        <div>
-          <h1 className="text-2xl font-black text-white uppercase italic tracking-tighter">Simulate</h1>
-          <p className="text-slate-500 text-xs mt-0.5">Pick a shipment to run a simulation</p>
+    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700">
+      <div className="flex items-center justify-between border-b border-white/5 pb-6">
+        <div className="flex items-center gap-4">
+          <div className="p-2.5 bg-cyan-500/10 rounded-xl border border-cyan-500/20 shadow-[0_0_15px_rgba(6,182,212,0.1)]">
+            <Zap size={22} className="text-cyan-400 animate-pulse" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-black text-white uppercase italic tracking-tighter">Tactical Simulations</h1>
+            <p className="text-slate-500 text-[9px] font-black uppercase tracking-[0.3em] mt-1">Select manifest to initialize projection</p>
+          </div>
         </div>
       </div>
 
-      {loading && <p className="text-slate-500 text-sm">Loading…</p>}
-      {!loading && !shipments.length && (
-        <p className="text-slate-600 text-sm text-center py-8">No shipments found. <Link to="/dashboard/new-shipment" className="text-cyan-400 underline">Create one.</Link></p>
-      )}
-      <div className="space-y-2">
-        {shipments.map(s => (
-          <Link key={s.id} to={`/simulate/${s.id}`}
-            className="flex items-center justify-between bg-[#050810] border border-white/5 hover:border-cyan-500/30 p-5 rounded-2xl transition-all group">
-            <div>
-              <p className="text-cyan-400 font-mono font-black text-sm">{s.display_id}</p>
-              <p className="text-white font-bold">{s.source?.name} → {s.destination?.name}</p>
-              <p className="text-slate-500 text-xs mt-0.5">{s.vehicle_type} · {s.type}</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${
-                s.status === 'in_transit' ? 'text-yellow-400 border-yellow-500/30 bg-yellow-500/10' :
-                s.status === 'fulfilled'  ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' :
-                'text-slate-400 border-white/10 bg-white/5'
-              }`}>{s.status?.replace('_',' ')}</span>
-              <Play size={16} className="text-slate-600 group-hover:text-cyan-400 transition" />
-            </div>
-          </Link>
-        ))}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        {loading ? (
+          [1, 2, 3].map(i => <div key={i} className="h-44 bg-white/[0.02] border border-white/5 rounded-[2rem] animate-pulse" />)
+        ) : (
+          shipments.map(s => (
+            <Link key={s.id} to={`/simulate/${s.id}`}
+              className="group relative bg-[#050810] border border-white/5 hover:border-cyan-500/40 p-6 rounded-[2rem] transition-all duration-500 hover:-translate-y-2 overflow-hidden shadow-2xl">
+              
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(6,182,212,0.05)_0%,transparent_60%)] opacity-0 group-hover:opacity-100 transition-opacity" />
+              
+              <div className="relative space-y-4">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,1)]" />
+                    <p className="text-cyan-400 font-mono font-black text-[10px] tracking-widest">{s.display_id}</p>
+                  </div>
+                  <span className={`text-[8px] font-black uppercase px-2.5 py-1 rounded-lg border tracking-tighter ${
+                    s.status === 'in_transit' ? 'text-yellow-400 border-yellow-500/20 bg-yellow-500/5' : 'text-slate-500 border-white/10 bg-white/5'
+                  }`}>{s.status?.replace('_',' ')}</span>
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="relative pl-4 border-l border-white/10 group-hover:border-cyan-500/30 transition-colors">
+                    <p className="text-white font-black text-sm leading-tight uppercase italic tracking-tight truncate">{s.source?.name}</p>
+                    <div className="h-3 w-[1px] bg-gradient-to-b from-cyan-500/50 to-transparent my-1" />
+                    <p className="text-white font-black text-sm leading-tight uppercase italic tracking-tight truncate">{s.destination?.name}</p>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between">
+                  <div>
+                    <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest leading-none mb-1">Asset Type</p>
+                    <p className="text-slate-300 text-[10px] font-bold truncate max-w-[150px]">{s.vehicle_type}</p>
+                  </div>
+                  <div className="bg-white/5 p-2.5 rounded-xl border border-white/10 text-slate-500 group-hover:bg-cyan-500 group-hover:text-black group-hover:border-cyan-400 group-hover:shadow-[0_0_15px_rgba(6,182,212,0.4)] transition-all duration-300">
+                    <Play size={14} fill="currentColor" />
+                  </div>
+                </div>
+              </div>
+            </Link>
+          ))
+        )}
       </div>
     </div>
   );
 }
 
-// ── Simulate Map ──────────────────────────────────────────────────────────────
+// ── Tactical Map View ──────────────────────────────────────────────────────────────
 
 function SimulateMap({ shipmentId }) {
   const navigate = useNavigate();
-
-  const [shipment, setShipment]   = useState(null);
-  const [corridor, setCorridor]   = useState('Mumbai-Pune');
+  const [shipment, setShipment] = useState(null);
+  const [corridor, setCorridor] = useState('Mumbai-Pune');
   const [loadError, setLoadError] = useState('');
-  const [ready, setReady]         = useState(false);
+  const [ready, setReady] = useState(false);
 
   const {
-    isSimulating, playbackSpeed,
+    isSimulating,
     waypoints, currentStep,
-    riskScore, riskSeverity,
-    setIsSimulating, setPlaybackSpeed,
+    setIsSimulating,
     setWaypoints, setCurrentStep,
     setRisk, reset,
   } = useSimulationStore();
 
   const containerRef = useRef(null);
-  const mapRef       = useRef(null);
-  const markerRef    = useRef(null);
-  const timerRef     = useRef(null);
+  const mapRef = useRef(null);
+  const markerRef = useRef(null);
+  const timerRef = useRef(null);
 
-  // Load shipment + route
   useEffect(() => {
     reset();
     let cancelled = false;
-
     async function load() {
       try {
-        const { data: s, error } = await supabase
-          .from('shipments').select('*').eq('id', shipmentId).single();
+        const { data: s, error } = await supabase.from('shipments').select('*').eq('id', shipmentId).single();
         if (error) throw new Error(error.message);
         if (cancelled) return;
         setShipment(s);
@@ -181,200 +171,141 @@ function SimulateMap({ shipmentId }) {
     }
     load();
     return () => { cancelled = true; };
-  }, [shipmentId]);
+  }, [shipmentId, reset, setWaypoints]);
 
-  // Init map when route is ready
   useEffect(() => {
     if (!ready || !containerRef.current || mapRef.current || !waypoints.length) return;
-    const start = waypoints[0];
-
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: 'https://tiles.openfreemap.org/styles/liberty',
-      center: [start.lng, start.lat],
+      center: [waypoints[0].lng, waypoints[0].lat],
       zoom: 10, pitch: 45,
     });
     mapRef.current = map;
 
     map.on('load', () => {
-      try {
-        map.addSource('terrain', {
-          type: 'raster-dem', encoding: 'terrarium',
-          tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
-          tileSize: 256, maxzoom: 15,
-        });
-        map.setTerrain({ source: 'terrain', exaggeration: 1.5 });
-        map.addLayer({ id: 'sky', type: 'sky', paint: {
-          'sky-type': 'atmosphere', 'sky-atmosphere-sun': [0.0, 0.0], 'sky-atmosphere-sun-intensity': 15,
-        }});
-      } catch { /* MapLibre version may not support sky */ }
-
-      // Full route (grey)
-      map.addSource('full-route', { type: 'geojson', data: { type: 'Feature', geometry: {
-        type: 'LineString', coordinates: waypoints.map(w => [w.lng, w.lat]),
-      }}});
-      map.addLayer({ id: 'full-route-line', type: 'line', source: 'full-route',
-        paint: { 'line-color': 'rgba(255,255,255,0.2)', 'line-width': 3 } });
-
-      // Done portion (cyan)
+      map.addSource('full-route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: waypoints.map(w => [w.lng, w.lat]) }}});
+      map.addLayer({ id: 'full-route-line', type: 'line', source: 'full-route', paint: { 'line-color': 'rgba(255,255,255,0.15)', 'line-width': 3 } });
       map.addSource('done-route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }}});
-      map.addLayer({ id: 'done-route-line', type: 'line', source: 'done-route',
-        paint: { 'line-color': '#06b6d4', 'line-width': 4, 'line-opacity': 0.9 } });
+      map.addLayer({ id: 'done-route-line', type: 'line', source: 'done-route', paint: { 'line-color': '#06b6d4', 'line-width': 4 } });
 
-      // Truck marker
-      const el = Object.assign(document.createElement('div'), {
-        style: 'font-size:28px;cursor:default;user-select:none;',
-        textContent: shipment?.type === 'water' ? '🚢' : '🚛',
-      });
-      markerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([start.lng, start.lat]).addTo(map);
-
-      // Fit to route
-      const bounds = waypoints.reduce(
-        (b, w) => b.extend([w.lng, w.lat]),
-        new maplibregl.LngLatBounds([start.lng, start.lat], [start.lng, start.lat])
-      );
+      const el = document.createElement('div');
+      el.style.fontSize = '32px';
+      el.textContent = shipment?.type === 'water' ? '🚢' : '🚛';
+      markerRef.current = new maplibregl.Marker({ element: el }).setLngLat([waypoints[0].lng, waypoints[0].lat]).addTo(map);
+      
+      const bounds = waypoints.reduce((b, w) => b.extend([w.lng, w.lat]), new maplibregl.LngLatBounds([waypoints[0].lng, waypoints[0].lat], [waypoints[0].lng, waypoints[0].lat]));
       map.fitBounds(bounds, { padding: 80, duration: 1200 });
     });
+    return () => map.remove();
+  }, [ready, waypoints, shipment]);
 
-    return () => { map.remove(); mapRef.current = null; };
-  }, [ready]);
-
-  // Update marker + done-route on each step
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !markerRef.current || !waypoints[currentStep]) return;
     const pt = waypoints[currentStep];
-    const next = waypoints[currentStep + 1];
-    const bearing = next
-      ? Math.atan2(next.lng - pt.lng, next.lat - pt.lat) * (180 / Math.PI) : 0;
-
     markerRef.current.setLngLat([pt.lng, pt.lat]);
-    map.easeTo({ center: [pt.lng, pt.lat], bearing, pitch: 60, zoom: 13.5,
-      duration: STEP_DELAY[playbackSpeed] * 0.85 });
-
+    map.easeTo({ center: [pt.lng, pt.lat], duration: STEP_DELAY * 0.85 });
     if (map.getSource('done-route')) {
-      map.getSource('done-route').setData({ type: 'Feature', geometry: {
-        type: 'LineString', coordinates: waypoints.slice(0, currentStep + 1).map(w => [w.lng, w.lat]),
-      }});
+      map.getSource('done-route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: waypoints.slice(0, currentStep + 1).map(w => [w.lng, w.lat]) }});
     }
-  }, [currentStep]);
+  }, [currentStep, waypoints]);
 
-  // Simulation timer
   useEffect(() => {
-    clearTimeout(timerRef.current);
     if (!isSimulating || !ready) return;
     timerRef.current = setTimeout(() => {
       if (currentStep >= waypoints.length - 1) { setIsSimulating(false); return; }
       setCurrentStep(currentStep + 1);
-    }, STEP_DELAY[playbackSpeed]);
+    }, STEP_DELAY);
     return () => clearTimeout(timerRef.current);
-  }, [isSimulating, currentStep, playbackSpeed, waypoints, ready]);
+  }, [isSimulating, currentStep, waypoints, ready, setIsSimulating, setCurrentStep]);
 
-  // Per-step risk prediction
   useEffect(() => {
     if (!waypoints[currentStep] || !ready) return;
     const { lat, lng } = waypoints[currentStep];
-    axios.post(`${ML_URL}/predict`, { lat, lng, corridor }, { timeout: 4000 })
-      .then(({ data }) => setRisk(data.risk_score, data.severity))
-      .catch(() => {});
-  }, [currentStep, ready]);
+    axios.post(`${ML_URL}/predict`, { lat, lng, corridor }).then(({ data }) => setRisk(data.risk_score, data.severity)).catch(() => {});
+  }, [currentStep, ready, corridor, setRisk]);
 
-  const skipToEnd = () => {
-    setIsSimulating(false);
-    setCurrentStep(waypoints.length - 1);
+  const handleScrub = (e) => {
+    const value = parseInt(e.target.value);
+    setIsSimulating(false); // Stop playback while scrubbing
+    setCurrentStep(value);
   };
-
-  const scrubTo = (e) => {
-    const pct = parseFloat(e.target.value) / 100;
-    setIsSimulating(false);
-    setCurrentStep(Math.round(pct * (waypoints.length - 1)));
-  };
-
-  const progress = waypoints.length > 1 ? (currentStep / (waypoints.length - 1)) * 100 : 0;
-
-  if (loadError) return (
-    <div className="flex flex-col items-center justify-center h-[calc(100vh-8rem)] gap-4">
-      <AlertTriangle size={32} className="text-red-400" />
-      <p className="text-red-400">{loadError}</p>
-      <button onClick={() => navigate('/simulate')} className="text-cyan-400 underline text-sm">Go back</button>
-    </div>
-  );
 
   return (
-    <div className="relative h-[calc(100vh-4rem)] -m-8 overflow-hidden">
+    <div className="relative h-[calc(100vh-4rem)] -m-8 overflow-hidden bg-black">
       <div ref={containerRef} className="w-full h-full" />
-
-      {/* Loading overlay */}
+      
       {!ready && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#020617]/90 gap-4">
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#020617] gap-4">
           <Loader2 size={36} className="text-cyan-400 animate-spin" />
-          <p className="text-white font-black uppercase tracking-widest text-sm">Loading Route…</p>
+          <p className="text-white font-black uppercase tracking-widest text-xs">Calibrating Route...</p>
         </div>
       )}
 
       {ready && (
         <>
-          {/* Back */}
-          <button onClick={() => navigate('/simulate')}
-            className="absolute top-4 left-4 z-10 p-2 bg-black/60 backdrop-blur-sm border border-white/10 rounded-xl text-white hover:text-cyan-400 transition">
-            <ArrowLeft size={18} />
-          </button>
-
-          {/* Shipment chip */}
-          {shipment && (
-            <div className="absolute top-4 left-14 z-10 bg-black/60 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-2">
-              <p className="text-cyan-400 font-mono font-black text-sm">{shipment.display_id}</p>
-              <p className="text-white text-xs">{shipment.source?.name} → {shipment.destination?.name}</p>
-            </div>
-          )}
-
-          {/* Risk gauge */}
-          <div className="absolute top-4 right-4 z-10 bg-black/60 backdrop-blur-sm border border-white/10 rounded-2xl p-4">
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2 text-center">Risk Level</p>
-            <RiskGauge score={riskScore} severity={riskSeverity} />
+          <div className="absolute top-6 left-6 z-10 flex items-center gap-4">
+            <button onClick={() => navigate('/simulate')} className="p-3 bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl text-white hover:text-cyan-400 transition shadow-2xl">
+              <ArrowLeft size={20} />
+            </button>
+            {shipment && (
+              <div className="bg-black/60 backdrop-blur-xl border border-white/10 rounded-2xl px-5 py-3 shadow-2xl">
+                <p className="text-cyan-400 font-mono font-black text-[10px] tracking-widest leading-none mb-1">{shipment.display_id}</p>
+                <p className="text-white text-xs font-bold leading-none">{shipment.source?.name} → {shipment.destination?.name}</p>
+              </div>
+            )}
           </div>
 
-          {/* Bottom controls */}
-          <div className="absolute bottom-0 left-0 right-0 z-10 bg-black/70 backdrop-blur-md border-t border-white/10 px-6 py-4 space-y-3">
-            {/* Scrubber */}
-            <div className="flex items-center gap-3">
-              <span className="text-slate-500 text-xs font-mono w-16">
-                {currentStep + 1}/{waypoints.length}
-              </span>
-              <input
-                type="range" min={0} max={100}
-                value={progress.toFixed(1)}
-                onChange={scrubTo}
-                className="flex-1 accent-cyan-400 cursor-pointer"
-              />
-              <span className="text-slate-500 text-xs font-mono w-10 text-right">{progress.toFixed(0)}%</span>
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 w-[90%] max-w-4xl bg-black/80 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 shadow-2xl flex flex-col gap-4">
+            {/* Scrubber / Progress Bar */}
+            <div className="flex items-center gap-4 group">
+               <span className="text-[10px] font-mono text-slate-500 w-12">
+                 {Math.round((currentStep / (waypoints.length - 1)) * 100)}%
+               </span>
+               <input
+                 type="range"
+                 min="0"
+                 max={waypoints.length - 1}
+                 value={currentStep}
+                 onChange={handleScrub}
+                 className="flex-1 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-cyan-500 hover:accent-cyan-400 transition-all"
+               />
+               <span className="text-[10px] font-mono text-slate-500 w-12 text-right">
+                 {currentStep}/{waypoints.length - 1}
+               </span>
             </div>
 
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              {/* Play/Pause */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setIsSimulating(!isSimulating)}
-                  disabled={currentStep >= waypoints.length - 1}
-                  className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-black font-black px-5 py-2.5 rounded-xl transition text-sm uppercase tracking-widest">
-                  {isSimulating ? <><Pause size={16} /> Pause</> : <><Play size={16} /> Play</>}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => setIsSimulating(!isSimulating)} 
+                  disabled={currentStep >= waypoints.length - 1 && !isSimulating}
+                  className="bg-cyan-500 hover:bg-cyan-400 text-black px-10 py-3 rounded-xl font-black uppercase text-xs tracking-widest transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSimulating ? <><Pause size={16} /> Pause Simulation</> : <><Play size={16} /> Play Simulation</>}
                 </button>
+                
+                {currentStep >= waypoints.length - 1 && (
+                  <button 
+                    onClick={() => setCurrentStep(0)} 
+                    className="text-cyan-500 text-[10px] font-black uppercase tracking-widest hover:underline"
+                  >
+                    Restart
+                  </button>
+                )}
+              </div>
 
-                {/* Speed */}
-                <div className="flex items-center gap-1">
-                  {[1, 2, 5, 10].map(s => (
-                    <button key={s} onClick={() => setPlaybackSpeed(s)}
-                      className={`px-3 py-2 rounded-lg text-xs font-black uppercase transition ${
-                        playbackSpeed === s ? 'bg-white text-black' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'
-                      }`}>{s}×</button>
-                  ))}
+              <div className="flex items-center gap-6">
+                <div className="hidden sm:flex flex-col items-end">
+                   <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none">Simulation Active</p>
+                   <p className="text-white font-mono text-[11px] mt-1">{isSimulating ? 'TRANSMITTING' : 'IDLE'}</p>
                 </div>
-
-                {/* Skip to end */}
-                <button onClick={skipToEnd} title="Skip to end"
-                  className="flex items-center gap-1 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white px-3 py-2.5 rounded-xl transition text-xs font-black">
-                  <SkipForward size={15} /> Skip
+                <button 
+                  onClick={() => setCurrentStep(waypoints.length - 1)} 
+                  className="text-[10px] font-black uppercase text-slate-500 hover:text-white transition tracking-widest flex items-center gap-2 bg-white/5 px-4 py-2 rounded-lg border border-white/5"
+                >
+                  <SkipForward size={14} /> Final Dest
                 </button>
               </div>
             </div>
