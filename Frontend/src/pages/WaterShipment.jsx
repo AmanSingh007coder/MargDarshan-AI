@@ -4,117 +4,17 @@ import { useNavigate } from 'react-router-dom';
 import L from 'leaflet';
 import axios from 'axios';
 import {
-  Anchor, Wind, Waves, ArrowLeft, Loader2,
-  Ship, Flag, AlertTriangle, MapPin, Fuel, Clock, Trash2,
+  Ship, ArrowLeft, Loader2, AlertTriangle, MapPin, Fuel, Clock,
+  Waves, Wind, Anchor, TrendingDown, TrendingUp, Zap,
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 import { generateDisplayId } from '../utils/idGenerator';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
-  iconUrl:       'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  shadowUrl:     'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-});
-
-// ── Naval bases & ports (markers only, no lanes) ────────────────────────────
-
-const NAVAL_BASES = [
-  { name: 'INS Shivaji (Mumbai)',    lat: 18.9667, lng: 72.8333 },
-  { name: 'INS Kadamba (Karwar)',    lat: 14.8136, lng: 74.1280 },
-  { name: 'INS Venduruthy (Kochi)', lat:  9.9312, lng: 76.2673 },
-  { name: 'HQENC (Visakhapatnam)', lat: 17.6868, lng: 83.2185 },
-  { name: 'INS Jarawa (Port Blair)',lat: 11.6234, lng: 92.7265 },
-];
-
-const PORTS = [
-  { name: 'Mumbai Port',          lat: 18.9399, lng: 72.8355 },
-  { name: 'Chennai Port',         lat: 13.0827, lng: 80.2707 },
-  { name: 'Kochi Port',           lat:  9.9312, lng: 76.2673 },
-  { name: 'Mormugao Port (Goa)', lat: 15.4189, lng: 73.7975 },
-  { name: 'Colombo Port',         lat:  6.9271, lng: 79.8612 },
-  { name: 'Singapore Port',       lat:  1.2897, lng: 103.8501 },
-  { name: 'Jebel Ali (Dubai)',    lat: 24.9878, lng: 55.0561 },
-];
-
-const VESSEL_TYPES = [
-  'Container Ship', 'Bulk Carrier', 'Tanker (Crude)',
-  'LNG Carrier', 'RORO Vessel', 'General Cargo', 'Tug & Barge',
-];
-const VESSEL_SPEEDS = {
-  'Container Ship': 22, 'Bulk Carrier': 14, 'Tanker (Crude)': 15,
-  'LNG Carrier': 19,   'RORO Vessel': 20,  'General Cargo': 14, 'Tug & Barge': 8,
-};
-
-// ── Sea routing ─────────────────────────────────────────────────────────────
-// Routes through open water, avoiding the Indian subcontinent and Sri Lanka.
-
-function buildSeaBridge(srcLat, srcLng, dstLat, dstLng) {
-  // Determine which side of India each point is on (west=Arabian Sea, east=Bay of Bengal)
-  const srcWest = srcLng < 78 && srcLat > 7;
-  const dstWest = dstLng < 78 && dstLat > 7;
-  const srcEast = srcLng > 79 && srcLat > 7;
-  const dstEast = dstLng > 79 && dstLat > 7;
-
-  const crossesIndia = (srcWest && dstEast) || (srcEast && dstWest);
-  if (!crossesIndia) return [];
-
-  // Route around the southern tip of India and Sri Lanka
-  if (srcWest) {
-    // West → East: dive south, pass below Sri Lanka, come up east
-    return [
-      [8.2, 76.5],  // approach south tip (west side)
-      [6.5, 77.2],  // Cape Comorin area (south of India tip)
-      [5.6, 79.2],  // south of Sri Lanka
-      [7.5, 81.5],  // northeast of Sri Lanka
-    ];
-  } else {
-    // East → West
-    return [
-      [7.5, 81.5],
-      [5.6, 79.2],
-      [6.5, 77.2],
-      [8.2, 76.5],
-    ];
-  }
-}
-
-function seaRoute(srcLat, srcLng, dstLat, dstLng) {
-  const bridge = buildSeaBridge(srcLat, srcLng, dstLat, dstLng);
-  const allPts  = [[srcLat, srcLng], ...bridge, [dstLat, dstLng]];
-
-  // Interpolate smooth arc between each segment
-  const result = [];
-  for (let i = 0; i < allPts.length - 1; i++) {
-    const [la1, ln1] = allPts[i];
-    const [la2, ln2] = allPts[i + 1];
-    const steps = 15;
-    for (let j = 0; j < steps; j++) {
-      const t = j / steps;
-      result.push([la1 + (la2 - la1) * t, ln1 + (ln2 - ln1) * t]);
-    }
-  }
-  result.push(allPts[allPts.length - 1]);
-  return result;
-}
-
-function haversineKm(lat1, lng1, lat2, lng2) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2
-    + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-// ── Icons ────────────────────────────────────────────────────────────────────
-
-const NAVAL_ICON = L.divIcon({
-  html: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="14" cy="14" r="12" fill="#1e3a5f" stroke="#38bdf8" stroke-width="2"/>
-    <path d="M14 6v8M10 18h8l-4-4-4 4z" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"/>
-  </svg>`,
-  className: '', iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -14],
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
 const PORT_ICON = L.divIcon({
@@ -126,233 +26,380 @@ const PORT_ICON = L.divIcon({
   className: '', iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -14],
 });
 
-const WP_ICON = L.divIcon({
-  html: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="12" cy="12" r="8" fill="#7c3aed" stroke="#a78bfa" stroke-width="2"/>
-    <circle cx="12" cy="12" r="3" fill="#a78bfa"/>
-  </svg>`,
-  className: '', iconSize: [24, 24], iconAnchor: [12, 12], popupAnchor: [0, -12],
-});
-
-// ── Weather strip ─────────────────────────────────────────────────────────────
-
-function WeatherStrip({ lat, lng }) {
-  const [w, setW] = useState(null);
-  useEffect(() => {
-    if (!lat || !lng) return;
-    axios.get(
-      `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}` +
-      `&current=wave_height,ocean_current_velocity,wave_direction`,
-      { timeout: 6000 }
-    ).then(r => setW(r.data.current)).catch(() => {});
-  }, [lat, lng]);
-
-  if (!w) return null;
-  return (
-    <div className="flex gap-3 text-xs text-slate-400 mt-2">
-      <span className="flex items-center gap-1"><Waves size={11} className="text-cyan-400" /> {w.wave_height?.toFixed(1) ?? '—'}m</span>
-      <span className="flex items-center gap-1"><Wind size={11} className="text-sky-400" /> {w.ocean_current_velocity?.toFixed(1) ?? '—'} kt</span>
-    </div>
-  );
-}
-
-// ── Main ──────────────────────────────────────────────────────────────────────
-
 export default function WaterShipment() {
-  const navigate      = useNavigate();
-  const containerRef  = useRef(null);
-  const mapRef        = useRef(null);
+  const navigate = useNavigate();
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
 
-  const [vesselType, setVesselType]   = useState(VESSEL_TYPES[0]);
-  const [waypoints, setWaypoints]     = useState([]);
-  const [totalDist, setTotalDist]     = useState(0);
-  const [saving, setSaving]           = useState(false);
-  const [error, setError]             = useState('');
-  const [weatherPos, setWeatherPos]   = useState(null);
-  const [mapReady, setMapReady]       = useState(false);
+  const [ports, setPorts] = useState([]);
+  const [vessels, setVessels] = useState([]);
+  const [originPort, setOriginPort] = useState('');
+  const [destPort, setDestPort] = useState('');
+  const [vesselType, setVesselType] = useState('bulk_carrier');
+  const [quantity, setQuantity] = useState(5000);
+  const [route, setRoute] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [mapReady, setMapReady] = useState(false);
 
-  // Init map
+  // Fetch ports and vessels on mount
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [portsRes, vesselsRes] = await Promise.all([
+          axios.get('http://localhost:8888/water/ports', { timeout: 5000 }),
+          axios.get('http://localhost:8888/water/vessels', { timeout: 5000 }),
+        ]);
+        setPorts(portsRes.data.ports);
+        setVessels(vesselsRes.data.vessels);
+        if (portsRes.data.ports.length > 0) {
+          setOriginPort(portsRes.data.ports[0].name);
+          setDestPort(portsRes.data.ports[1]?.name || '');
+        }
+      } catch (err) {
+        const errorMsg = err.response?.status === 404
+          ? 'Backend endpoints not found. Ensure FastAPI server running on port 8080 with /water/ports, /water/vessels endpoints'
+          : err.code === 'ECONNABORTED'
+          ? 'Connection timeout. FastAPI server not responding on localhost:8888'
+          : `Failed to load ports/vessels: ${err.message}`;
+        setError(errorMsg);
+        console.error('Fetch error:', err);
+      }
+    };
+    fetchData();
+  }, []);
+
+  // Initialize map
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    const map = L.map(containerRef.current, { center: [12, 72], zoom: 5 });
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-      { attribution: '© CartoDB', subdomains: 'abcd', maxZoom: 19 }).addTo(map);
+    const map = L.map(containerRef.current, { center: [12, 75], zoom: 5 });
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© CartoDB',
+      subdomains: 'abcd',
+      maxZoom: 19,
+    }).addTo(map);
 
-    NAVAL_BASES.forEach(b =>
-      L.marker([b.lat, b.lng], { icon: NAVAL_ICON })
-        .bindPopup(`<b style="color:#38bdf8;font-family:monospace">${b.name}</b><br><small style="color:#94a3b8">Naval Base</small>`)
-        .addTo(map)
-    );
-    PORTS.forEach(p =>
+    ports.forEach(p =>
       L.marker([p.lat, p.lng], { icon: PORT_ICON })
-        .bindPopup(`<b style="color:#10b981;font-family:monospace">${p.name}</b><br><small style="color:#94a3b8">Port</small>`)
+        .bindPopup(`<b style="color:#10b981;font-family:monospace">${p.name}</b>`)
         .addTo(map)
     );
-
-    map.on('click', e => {
-      const { lat, lng } = e.latlng;
-      setWeatherPos({ lat: +lat.toFixed(3), lng: +lng.toFixed(3) });
-      setWaypoints(prev => [...prev, {
-        lat: +lat.toFixed(4), lng: +lng.toFixed(4),
-        name: `WP ${prev.length + 1}`,
-      }]);
-    });
 
     mapRef.current = map;
     setMapReady(true);
     return () => { map.remove(); mapRef.current = null; };
-  }, []);
+  }, [ports]);
 
-  // Sync waypoints + sea route on map
+  // Draw route on map when calculated
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
-    map.eachLayer(l => { if (l._isWP || l._isRoute) map.removeLayer(l); });
+    if (!map || !route) return;
 
-    waypoints.forEach(wp => {
-      const m = L.marker([wp.lat, wp.lng], { icon: WP_ICON });
-      m._isWP = true;
-      m.bindPopup(`<span style="font-family:monospace;color:#a78bfa">${wp.name}<br>${wp.lat}, ${wp.lng}</span>`);
-      m.addTo(map);
+    map.eachLayer(l => { if (l._isRoute) map.removeLayer(l); });
+
+    const coords = route.waypoints.map(w => [w.lat, w.lng]);
+    const poly = L.polyline(coords, {
+      color: '#06b6d4',
+      weight: 3,
+      opacity: 0.8,
+      dashArray: '5, 5',
     });
+    poly._isRoute = true;
+    poly.addTo(map);
 
-    if (waypoints.length >= 2) {
-      let dist = 0;
-      for (let i = 0; i < waypoints.length - 1; i++) {
-        const a = waypoints[i], b = waypoints[i + 1];
-        const coords = seaRoute(a.lat, a.lng, b.lat, b.lng);
-        // sum actual routed distance segment by segment
-        for (let j = 0; j < coords.length - 1; j++) {
-          dist += haversineKm(coords[j][0], coords[j][1], coords[j+1][0], coords[j+1][1]);
-        }
-        const poly = L.polyline(coords, { color: '#06b6d4', weight: 3, opacity: 0.9 });
-        poly._isRoute = true;
-        poly.addTo(map);
-      }
-      setTotalDist(Math.round(dist));
-    } else {
-      setTotalDist(0);
+    // Fit bounds to route
+    if (coords.length > 0) {
+      const bounds = L.latLngBounds(coords);
+      map.fitBounds(bounds, { padding: [50, 50] });
     }
-  }, [waypoints]);
+  }, [route]);
 
-  const removeWaypoint = useCallback(idx => setWaypoints(p => p.filter((_, i) => i !== idx)), []);
+  const handleCalculateRoute = async () => {
+    if (!originPort || !destPort) {
+      setError('Select both origin and destination ports');
+      return;
+    }
 
-  const nm        = Math.round(totalDist * 0.539957);
-  const speed     = VESSEL_SPEEDS[vesselType] || 15;
-  const etaHours  = nm > 0 ? (nm / speed).toFixed(1) : 0;
-  const fuelTons  = totalDist > 0 ? Math.round(totalDist * 0.018) : 0;
+    const origin = ports.find(p => p.name === originPort);
+    const dest = ports.find(p => p.name === destPort);
 
-  const handleSave = async () => {
-    if (waypoints.length < 2) { setError('Add at least 2 waypoints.'); return; }
-    setError(''); setSaving(true);
+    if (!origin || !dest) {
+      setError('Invalid port selection');
+      return;
+    }
+
+    setError('');
+    setLoading(true);
+
+    try {
+      const res = await axios.post('http://localhost:8000/water/route', {
+        origin_lat: origin.lat,
+        origin_lng: origin.lng,
+        destination_lat: dest.lat,
+        destination_lng: dest.lng,
+        vessel_type: vesselType,
+        quantity_tons: quantity,
+      });
+
+      setRoute(res.data);
+    } catch (err) {
+      setError(`Route calculation failed: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveRoute = async () => {
+    if (!route || !originPort || !destPort) {
+      setError('Calculate and select a route first');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+
     try {
       const { data: { user }, error: authErr } = await supabase.auth.getUser();
-      if (authErr || !user) throw new Error('Not authenticated.');
+      if (authErr || !user) throw new Error('Not authenticated');
 
-      const src = waypoints[0], dst = waypoints[waypoints.length - 1];
+      const origin = ports.find(p => p.name === originPort);
+      const dest = ports.find(p => p.name === destPort);
+
       const { error: dbErr } = await supabase.from('shipments').insert({
-        display_id:   generateDisplayId(),
-        user_id:      user.id,
-        type:         'water',
+        display_id: generateDisplayId(),
+        user_id: user.id,
+        type: 'water',
         vehicle_type: vesselType,
-        source:       { name: src.name, lat: src.lat, lng: src.lng },
-        destination:  { name: dst.name, lat: dst.lat, lng: dst.lng },
-        status:       'in_transit',
+        source: { name: origin.name, lat: origin.lat, lng: origin.lng },
+        destination: { name: dest.name, lat: dest.lat, lng: dest.lng },
+        status: 'in_transit',
         current_step: 0,
       });
+
       if (dbErr) throw dbErr;
       navigate('/dashboard/map');
-    } catch (err) { setError(err.message); }
-    finally { setSaving(false); }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="relative h-[calc(100vh-4rem)] -m-8 flex">
-      {/* Panel */}
-      <div className="w-72 bg-black/80 backdrop-blur-md border-r border-white/10 flex flex-col z-10 overflow-y-auto shrink-0">
+      {/* Control Panel */}
+      <div className="w-80 bg-black/80 backdrop-blur-md border-r border-white/10 flex flex-col z-10 overflow-y-auto shrink-0">
+        {/* Header */}
         <div className="p-4 border-b border-white/10">
-          <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-slate-500 hover:text-white text-xs mb-3 transition">
+          <button
+            onClick={() => navigate(-1)}
+            className="flex items-center gap-2 text-slate-500 hover:text-white text-xs mb-3 transition"
+          >
             <ArrowLeft size={14} /> Back
           </button>
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-cyan-500/10 rounded-xl"><Ship size={18} className="text-cyan-400" /></div>
+            <div className="p-2 bg-cyan-500/10 rounded-xl">
+              <Ship size={18} className="text-cyan-400" />
+            </div>
             <div>
-              <p className="text-white font-black text-sm uppercase tracking-tight">Naval Route Planner</p>
-              <p className="text-slate-500 text-[10px]">Click map to place waypoints</p>
+              <p className="text-white font-black text-sm uppercase tracking-tight">Cargo Router</p>
+              <p className="text-slate-500 text-[10px]">Water Shipment Planner</p>
             </div>
           </div>
         </div>
 
-        <div className="p-4 border-b border-white/10 space-y-2">
-          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Vessel Type</label>
-          <select value={vesselType} onChange={e => setVesselType(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 p-2.5 rounded-xl text-white text-sm focus:border-cyan-500 outline-none">
-            {VESSEL_TYPES.map(v => <option key={v} value={v}>{v}</option>)}
-          </select>
-          <p className="text-slate-500 text-[10px]">Speed: <span className="text-cyan-400">{speed} knots</span></p>
+        {/* Port Selection */}
+        <div className="p-4 border-b border-white/10 space-y-3">
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-2">
+              Origin Port
+            </label>
+            <select
+              value={originPort}
+              onChange={e => setOriginPort(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 p-2.5 rounded-xl text-white text-sm focus:border-cyan-500 outline-none"
+            >
+              <option value="">Select port...</option>
+              {ports.map(p => (
+                <option key={p.name} value={p.name}>
+                  {p.name} ({p.city})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-2">
+              Destination Port
+            </label>
+            <select
+              value={destPort}
+              onChange={e => setDestPort(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 p-2.5 rounded-xl text-white text-sm focus:border-cyan-500 outline-none"
+            >
+              <option value="">Select port...</option>
+              {ports.map(p => (
+                <option key={p.name} value={p.name}>
+                  {p.name} ({p.city})
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        <div className="p-4 border-b border-white/10 flex-1 overflow-y-auto">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Waypoints ({waypoints.length})</p>
-            {waypoints.length > 0 && (
-              <button onClick={() => setWaypoints([])} className="text-red-400 hover:text-red-300"><Trash2 size={12} /></button>
+        {/* Vessel & Cargo Selection */}
+        <div className="p-4 border-b border-white/10 space-y-3">
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-2">
+              Vessel Type
+            </label>
+            <select
+              value={vesselType}
+              onChange={e => setVesselType(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 p-2.5 rounded-xl text-white text-sm focus:border-cyan-500 outline-none"
+            >
+              {vessels.map(v => (
+                <option key={v.name} value={v.type}>
+                  {v.name} ({v.type})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-2">
+              Cargo Quantity (tons)
+            </label>
+            <input
+              type="number"
+              value={quantity}
+              onChange={e => setQuantity(parseInt(e.target.value) || 0)}
+              className="w-full bg-white/5 border border-white/10 p-2.5 rounded-xl text-white text-sm focus:border-cyan-500 outline-none"
+            />
+          </div>
+
+          <button
+            onClick={handleCalculateRoute}
+            disabled={loading || !originPort || !destPort}
+            className="w-full bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-black font-black py-3 rounded-xl text-sm uppercase tracking-widest transition flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <>
+                <Loader2 size={15} className="animate-spin" /> Calculating...
+              </>
+            ) : (
+              <>
+                <Anchor size={15} /> Calculate Route
+              </>
             )}
-          </div>
-          {waypoints.length === 0 && <p className="text-slate-600 text-xs text-center py-4">Click the map to add waypoints</p>}
-          <div className="space-y-1.5">
-            {waypoints.map((wp, i) => (
-              <div key={i} className="flex items-center gap-2 bg-white/[0.03] border border-white/5 rounded-lg px-3 py-2">
-                <span className="text-purple-400 font-mono text-xs font-black w-5">{i + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-xs font-bold">{wp.name}</p>
-                  <p className="text-slate-500 text-[10px] font-mono">{wp.lat}, {wp.lng}</p>
-                </div>
-                <button onClick={() => removeWaypoint(i)} className="text-slate-600 hover:text-red-400 shrink-0"><Trash2 size={11} /></button>
-              </div>
-            ))}
-          </div>
+          </button>
         </div>
 
-        {totalDist > 0 && (
-          <div className="p-4 border-b border-white/10">
-            <div className="grid grid-cols-3 gap-2">
-              <div className="bg-white/[0.03] border border-white/5 rounded-lg p-2 text-center">
-                <MapPin size={11} className="text-cyan-400 mx-auto mb-1" />
-                <p className="text-white font-black text-sm">{nm}</p>
-                <p className="text-slate-500 text-[9px]">NM</p>
+        {/* Route Summary */}
+        {route && (
+          <div className="p-4 border-b border-white/10 space-y-4">
+            <div className="bg-white/[0.03] border border-white/5 rounded-lg p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-xs flex items-center gap-1">
+                  <MapPin size={12} className="text-cyan-400" /> Distance
+                </span>
+                <span className="text-white font-black text-sm">{route.distance_nm} NM</span>
               </div>
-              <div className="bg-white/[0.03] border border-white/5 rounded-lg p-2 text-center">
-                <Clock size={11} className="text-sky-400 mx-auto mb-1" />
-                <p className="text-white font-black text-sm">{etaHours}h</p>
-                <p className="text-slate-500 text-[9px]">ETA</p>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-xs flex items-center gap-1">
+                  <Clock size={12} className="text-sky-400" /> ETA
+                </span>
+                <span className="text-white font-black text-sm">{route.eta_hours}h</span>
               </div>
-              <div className="bg-white/[0.03] border border-white/5 rounded-lg p-2 text-center">
-                <Fuel size={11} className="text-amber-400 mx-auto mb-1" />
-                <p className="text-white font-black text-sm">{fuelTons}t</p>
-                <p className="text-slate-500 text-[9px]">HFO</p>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-xs flex items-center gap-1">
+                  <Fuel size={12} className="text-amber-400" /> Fuel Cost
+                </span>
+                <span className="text-white font-black text-sm">₹{route.cost_breakdown.fuel.toLocaleString()}</span>
               </div>
             </div>
-            {weatherPos && <WeatherStrip lat={weatherPos.lat} lng={weatherPos.lng} />}
+
+            <div className="bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-500/30 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-cyan-400 text-xs font-black">Total Cost</span>
+                <span className="text-white font-black text-lg">₹{route.cost_estimate.toLocaleString()}</span>
+              </div>
+              <p className="text-slate-400 text-xs">
+                ₹{route.cost_per_ton.toLocaleString()} per ton
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="bg-white/[0.03] border border-white/5 rounded p-2">
+                <p className="text-slate-500 mb-1">Port Fees</p>
+                <p className="text-white font-black">₹{route.cost_breakdown.port_fees.toLocaleString()}</p>
+              </div>
+              <div className="bg-white/[0.03] border border-white/5 rounded p-2">
+                <p className="text-slate-500 mb-1">Crew Cost</p>
+                <p className="text-white font-black">₹{route.cost_breakdown.crew.toLocaleString()}</p>
+              </div>
+              <div className="bg-white/[0.03] border border-white/5 rounded p-2">
+                <p className="text-slate-500 mb-1">Insurance</p>
+                <p className="text-white font-black">₹{route.cost_breakdown.insurance.toLocaleString()}</p>
+              </div>
+              <div className="bg-white/[0.03] border border-white/5 rounded p-2">
+                <p className="text-slate-500 mb-1">Misc</p>
+                <p className="text-white font-black">₹{route.cost_breakdown.misc.toLocaleString()}</p>
+              </div>
+            </div>
           </div>
         )}
 
-        <div className="p-4">
-          {error && <div className="flex items-center gap-2 text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-lg p-2 mb-3"><AlertTriangle size={12} />{error}</div>}
-          <button onClick={handleSave} disabled={saving || waypoints.length < 2}
-            className="w-full bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-black font-black py-3 rounded-xl text-sm uppercase tracking-widest transition flex items-center justify-center gap-2">
-            {saving ? <><Loader2 size={15} className="animate-spin" />Saving…</> : <><Flag size={15} />Save Route</>}
+        {/* Action Buttons */}
+        <div className="p-4 mt-auto space-y-2">
+          {error && (
+            <div className="flex items-start gap-2 text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-lg p-2">
+              <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+          <button
+            onClick={handleSaveRoute}
+            disabled={!route || saving}
+            className="w-full bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-black font-black py-3 rounded-xl text-sm uppercase tracking-widest transition"
+          >
+            {saving ? <Loader2 size={15} className="inline animate-spin mr-2" /> : null}
+            {saving ? 'Saving...' : 'Create Shipment'}
           </button>
         </div>
       </div>
 
-      {/* Map */}
+      {/* Map Container */}
       <div className="flex-1 relative">
         <div ref={containerRef} className="w-full h-full" />
         {!mapReady && (
           <div className="absolute inset-0 flex items-center justify-center bg-[#020617]/80 z-[500]">
             <Loader2 size={28} className="text-cyan-400 animate-spin" />
+          </div>
+        )}
+
+        {/* Marine Conditions Info Overlay */}
+        {route && (
+          <div className="absolute bottom-6 right-6 max-w-xs bg-black/80 backdrop-blur-md border border-white/10 rounded-lg p-4 text-sm z-40">
+            <p className="text-cyan-400 font-black text-xs mb-2">ROUTE DETAILS</p>
+            <div className="space-y-1.5 text-slate-300 text-xs">
+              <p>
+                <span className="text-white font-bold">Origin:</span>{' '}
+                {originPort?.split(' ').slice(0, 2).join(' ')}
+              </p>
+              <p>
+                <span className="text-white font-bold">Destination:</span>{' '}
+                {destPort?.split(' ').slice(0, 2).join(' ')}
+              </p>
+              <p>
+                <span className="text-white font-bold">Distance:</span> {route.distance_km.toFixed(0)} km
+              </p>
+              <p>
+                <span className="text-white font-bold">Vessel:</span> {vesselType}
+              </p>
+            </div>
           </div>
         )}
       </div>

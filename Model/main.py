@@ -21,6 +21,7 @@ import math
 import numpy as np
 import pandas as pd
 import httpx
+import asyncio
 from datetime import datetime
 import uvicorn
 
@@ -69,10 +70,10 @@ with open(os.path.join(BASE_DIR, "corridor_meta.json")) as f:
 LANDSLIDE_ZONES = pd.read_csv(os.path.join(BASE_DIR, "landslide_zones.csv"))
 PROTEST_ZONES   = pd.read_csv(os.path.join(BASE_DIR, "protest_zones.csv"))
 
-print(f"✓ Model loaded")
-print(f"✓ Landslide zones: {len(LANDSLIDE_ZONES)} points")
-print(f"✓ Protest zones:   {len(PROTEST_ZONES)} points")
-print(f"✓ Corridors:       {list(CORRIDOR_META.keys())}")
+print(f"[OK] Model loaded")
+print(f"[OK] Landslide zones: {len(LANDSLIDE_ZONES)} points")
+print(f"[OK] Protest zones:   {len(PROTEST_ZONES)} points")
+print(f"[OK] Corridors:       {list(CORRIDOR_META.keys())}")
 
 # City → lat/lng lookup for routing
 CITY_COORDS = {
@@ -401,6 +402,30 @@ class RerouteRequest(BaseModel):
     corridor:         str
 
 
+class WaterPortCoords(BaseModel):
+    name: str
+    lat: float
+    lng: float
+
+
+class WaterRouteRequest(BaseModel):
+    origin_lat: float
+    origin_lng: float
+    destination_lat: float
+    destination_lng: float
+    vessel_type: str  # 'container', 'bulk_carrier', 'tanker', 'general_cargo', 'roro'
+    quantity_tons: int
+
+
+class WaterCostEstimateRequest(BaseModel):
+    distance_nm: float
+    vessel_dwt_tons: int
+    vessel_speed_knots: float
+    fuel_consumption_t_per_day: float = 25
+    fuel_cost_per_ton: float = 600
+    quantity_tons: int
+
+
 # ─────────────────────────────────────────────
 # ENDPOINTS
 # ─────────────────────────────────────────────
@@ -586,6 +611,407 @@ async def reroute(req: RerouteRequest):
         "trigger_lat":        req.current_lat,
         "trigger_lng":        req.current_lng,
         "timestamp":          datetime.utcnow().isoformat(),
+    }
+
+
+# ─────────────────────────────────────────────
+# WATER SHIPMENT ENDPOINTS
+# ─────────────────────────────────────────────
+
+def haversine_nm(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Distance in nautical miles."""
+    dist_km = haversine_km(lat1, lng1, lat2, lng2)
+    return dist_km / 1.852
+
+
+def get_coastal_exit(lat: float, lng: float) -> list:
+    """
+    Returns a waypoint just offshore (~15km) from the port.
+    West coast exits west, east coast exits east.
+    """
+    if lng < 78:  # west coast — small step into Arabian Sea
+        return [[lat, lng - 0.15]]
+    else:          # east coast — small step into Bay of Bengal
+        return [[lat, lng + 0.15]]
+
+
+def build_sea_bridge(src_lat: float, src_lng: float, dst_lat: float, dst_lng: float) -> list:
+    """
+    Build realistic ocean route avoiding landmass (India and Sri Lanka).
+    Starts/ends at the coastal edge, then follows maritime shipping lanes.
+    """
+    src_west = src_lng < 78 and src_lat > 7
+    dst_west = dst_lng < 78 and dst_lat > 7
+    src_east = src_lng > 79 and src_lat > 7
+    dst_east = dst_lng > 79 and dst_lat > 7
+
+    crosses_india = (src_west and dst_east) or (src_east and dst_west)
+    if not crosses_india:
+        # Same-coast route: just add coastal exit/entry points
+        return get_coastal_exit(src_lat, src_lng) + get_coastal_exit(dst_lat, dst_lng)
+
+    if src_west:
+        # West coast departure → coastal exit → south of Sri Lanka → east coast arrival
+        src_exit = get_coastal_exit(src_lat, src_lng)   # step offshore from origin
+        dst_entry = get_coastal_exit(dst_lat, dst_lng)  # approach destination from sea
+        return src_exit + [
+            [17.0, 73.1],  # ~30km offshore Mumbai coast
+            [15.5, 73.7],  # offshore Ratnagiri (coast ~73.3)
+            [13.5, 74.6],  # offshore Goa/Karwar (coast ~74.1)
+            [11.5, 75.4],  # offshore Karnataka (coast ~74.9)
+            [9.8,  75.9],  # offshore Kerala (coast ~76.1)
+            [8.5,  76.5],  # offshore Kochi (coast ~76.3)
+            [7.8,  77.0],  # rounding Kerala tip (coast ~76.9)
+            [7.0,  77.5],  # Gulf of Mannar
+            [6.0,  78.5],  # southwest of Sri Lanka
+            [5.7,  80.0],  # south of Sri Lanka
+            [5.9,  81.5],  # southeast of Sri Lanka
+            [7.0,  82.5],  # east of Sri Lanka
+            [9.5,  83.5],  # Bay of Bengal
+            [12.5, 84.5],  # heading northeast
+            [15.5, 85.1],  # approaching east coast
+        ] + dst_entry
+    else:
+        dst_entry = get_coastal_exit(dst_lat, dst_lng)
+        src_exit  = get_coastal_exit(src_lat, src_lng)
+        return src_exit + [
+            [15.5, 85.1],
+            [12.5, 84.5],
+            [9.5,  83.5],
+            [7.0,  82.5],
+            [5.9,  81.5],
+            [5.7,  80.0],
+            [6.0,  78.5],
+            [7.0,  77.5],
+            [7.8,  77.0],
+            [8.5,  76.5],
+            [9.8,  75.9],
+            [11.5, 75.4],
+            [13.5, 74.6],
+            [15.5, 73.7],
+            [17.0, 73.1],
+        ] + dst_entry
+
+
+def sea_route_waypoints(src_lat: float, src_lng: float, dst_lat: float, dst_lng: float, steps: int = 25) -> list:
+    """
+    Generate realistic smooth sea route waypoints with dense interpolation.
+    Creates natural curved paths with many intermediate points.
+    """
+    bridge = build_sea_bridge(src_lat, src_lng, dst_lat, dst_lng)
+    all_pts = [[src_lat, src_lng], *bridge, [dst_lat, dst_lng]]
+
+    result = []
+    # Increase steps for smoother curves (25 points between each waypoint)
+    for i in range(len(all_pts) - 1):
+        la1, ln1 = all_pts[i]
+        la2, ln2 = all_pts[i + 1]
+
+        # Linear interpolation with catmull-rom like smoothing
+        for j in range(steps):
+            t = j / steps
+            # Smooth step function for more natural curves
+            smooth_t = t * t * (3 - 2 * t)  # Smoothstep interpolation
+
+            result.append({
+                "lat": la1 + (la2 - la1) * smooth_t,
+                "lng": ln1 + (ln2 - ln1) * smooth_t,
+            })
+
+    # Add final point
+    result.append({"lat": all_pts[-1][0], "lng": all_pts[-1][1]})
+    return result
+
+
+def estimate_water_cost(distance_nm: float, vessel_dwt: int, quantity_tons: int,
+                       speed_knots: float, fuel_consumption_t_day: float,
+                       fuel_cost_per_ton: float) -> dict:
+    """
+    Estimate water shipment costs.
+    Formula: fuel_cost + port_fees + crew + insurance + misc
+    """
+    days_at_sea = (distance_nm / speed_knots) / 24 if speed_knots > 0 else 7
+
+    # Fuel cost
+    fuel_consumed = days_at_sea * fuel_consumption_t_day
+    fuel_cost = fuel_consumed * fuel_cost_per_ton
+
+    # Port fees (origin + destination)
+    base_port_fee = 50000  # ₹
+    handling_fee_per_ton = 150  # ₹
+    port_fees = base_port_fee * 2 + quantity_tons * handling_fee_per_ton
+
+    # Crew cost
+    crew_daily_cost = 25000  # ₹
+    crew_cost = days_at_sea * crew_daily_cost
+
+    # Insurance (assume ₹10000 per ton base rate)
+    cargo_value_per_ton = 10000
+    cargo_value = quantity_tons * cargo_value_per_ton
+    insurance_rate = 0.005
+    insurance = cargo_value * insurance_rate
+
+    # Miscellaneous
+    misc_per_nm = 200
+    misc_cost = distance_nm * misc_per_nm
+
+    total = fuel_cost + port_fees + crew_cost + insurance + misc_cost
+    cost_per_ton = total / quantity_tons if quantity_tons > 0 else 0
+
+    return {
+        "fuel_cost": round(fuel_cost, 2),
+        "port_fees": round(port_fees, 2),
+        "crew_cost": round(crew_cost, 2),
+        "insurance": round(insurance, 2),
+        "misc_cost": round(misc_cost, 2),
+        "total_cost": round(total, 2),
+        "cost_per_ton": round(cost_per_ton, 2),
+        "days_at_sea": round(days_at_sea, 1),
+    }
+
+
+@app.get("/water/ports")
+def get_water_ports():
+    """List all major Indian ports for water shipments."""
+    ports = [
+        {"name": "Mumbai Port", "city": "Mumbai", "lat": 18.9399, "lng": 72.8355, "region": "west"},
+        {"name": "Kolkata Port", "city": "Kolkata", "lat": 22.5726, "lng": 88.3639, "region": "east"},
+        {"name": "Kochi Port", "city": "Kochi", "lat": 9.9312, "lng": 76.2673, "region": "south"},
+        {"name": "Visakhapatnam Port", "city": "Visakhapatnam", "lat": 17.7011, "lng": 83.2992, "region": "east"},
+        {"name": "Chennai Port", "city": "Chennai", "lat": 13.0827, "lng": 80.2707, "region": "south"},
+        {"name": "Mormugao Port", "city": "Goa", "lat": 15.4189, "lng": 73.7975, "region": "west"},
+        {"name": "Kandla Port", "city": "Gujarat", "lat": 22.0183, "lng": 69.6049, "region": "west"},
+        {"name": "Paradip Port", "city": "Odisha", "lat": 19.7638, "lng": 86.6310, "region": "east"},
+        {"name": "Mangaluru Port", "city": "Mangaluru", "lat": 12.9141, "lng": 74.8560, "region": "south"},
+        {"name": "Port Blair", "city": "Port Blair", "lat": 11.6234, "lng": 92.7265, "region": "north"},
+        {"name": "Jawaharlal Nehru Port", "city": "Mumbai", "lat": 19.0176, "lng": 72.9781, "region": "west"},
+        {"name": "Ennore Port", "city": "Chennai", "lat": 13.2115, "lng": 80.3200, "region": "south"},
+    ]
+    return {"ports": ports, "total": len(ports)}
+
+
+@app.get("/water/vessels")
+def get_water_vessels():
+    """List available vessel types for water shipping."""
+    vessels = [
+        "Container Ship",
+        "Bulk Carrier",
+        "Tanker (Crude)",
+        "LNG Carrier",
+        "RORO Vessel",
+        "General Cargo",
+        "Tug & Barge",
+    ]
+    return {"vessels": vessels, "total": len(vessels)}
+
+
+@app.post("/water/route")
+def get_water_route(req: WaterRouteRequest):
+    """
+    Calculate sea route between two ports.
+    Returns distance, ETA, fuel consumption, and waypoints for map display.
+    """
+    distance_nm = haversine_nm(req.origin_lat, req.origin_lng, req.destination_lat, req.destination_lng)
+    distance_km = distance_nm * 1.852
+
+    # Generate realistic curved route waypoints
+    waypoints = sea_route_waypoints(req.origin_lat, req.origin_lng,
+                                    req.destination_lat, req.destination_lng)
+
+    # Vessel specs (speed in knots, fuel consumption in tons/day)
+    vessel_specs = {
+        "Container Ship": {"speed": 22, "consumption": 280},
+        "Bulk Carrier": {"speed": 14, "consumption": 45},
+        "Tanker (Crude)": {"speed": 15, "consumption": 50},
+        "LNG Carrier": {"speed": 19, "consumption": 120},
+        "RORO Vessel": {"speed": 20, "consumption": 40},
+        "General Cargo": {"speed": 14, "consumption": 35},
+        "Tug & Barge": {"speed": 8, "consumption": 25},
+    }
+
+    spec = vessel_specs.get(req.vessel_type, vessel_specs["General Cargo"])
+
+    # Calculate ETA (distance in NM / speed in knots)
+    eta_hours = distance_nm / spec["speed"] if spec["speed"] > 0 else 0
+    eta_days = eta_hours / 24
+
+    # Calculate fuel needed (consumption per day * days at sea)
+    fuel_required_tons = eta_days * spec["consumption"]
+
+    return {
+        "distance_km": round(distance_km, 1),
+        "distance_nm": round(distance_nm, 1),
+        "eta_hours": round(eta_hours, 1),
+        "eta_days": round(eta_days, 2),
+        "vessel_type": req.vessel_type,
+        "fuel_required_tons": round(fuel_required_tons, 1),
+        "waypoints": waypoints,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.post("/water/smart-route")
+async def get_smart_water_route(req: WaterRouteRequest):
+    """
+    Smart routing using real-time ocean and weather data.
+    APIs used:
+      - Open-Meteo Marine API (wave height, swell)
+      - Open-Meteo Weather API (wind speed)
+    Selects safest path from 3 candidate routes.
+    """
+    src_west = req.origin_lng < 78 and req.origin_lat > 7
+    dst_east = req.destination_lng > 79 and req.destination_lat > 7
+    crosses = (src_west and dst_east) or (req.origin_lng > 79 and req.destination_lng < 78)
+
+    # Three candidate paths — deep ocean, standard offshore, moderate
+    if src_west:
+        candidates = {
+            "deep_ocean": [
+                [17.0, 70.0], [13.0, 69.5], [9.0, 70.5], [6.0, 72.0],
+                [4.0, 75.0], [3.5, 79.0], [4.5, 83.5], [8.0, 86.0],
+                [13.0, 86.5], [16.0, 86.0],
+            ],
+            "standard": [
+                [17.0, 71.5], [14.0, 71.0], [11.0, 71.5], [9.0, 72.5],
+                [7.5, 73.5], [6.0, 75.0], [5.0, 77.0], [4.8, 80.0],
+                [5.5, 83.0], [8.0, 85.0], [12.0, 85.5], [15.0, 85.0],
+            ],
+            "coastal": [
+                [16.0, 72.0], [13.0, 73.0], [10.5, 74.0], [8.5, 75.5],
+                [7.0, 76.5], [5.5, 78.0], [5.2, 81.0], [6.5, 83.5],
+                [9.0, 85.0], [13.5, 85.5],
+            ],
+        }
+    else:
+        candidates = {
+            "deep_ocean": [
+                [16.0, 86.0], [13.0, 86.5], [8.0, 86.0], [4.5, 83.5],
+                [3.5, 79.0], [4.0, 75.0], [6.0, 72.0], [9.0, 70.5],
+                [13.0, 69.5], [17.0, 70.0],
+            ],
+            "standard": [
+                [15.0, 85.0], [12.0, 85.5], [8.0, 85.0], [5.5, 83.0],
+                [4.8, 80.0], [5.0, 77.0], [6.0, 75.0], [7.5, 73.5],
+                [9.0, 72.5], [11.0, 71.5], [14.0, 71.0], [17.0, 71.5],
+            ],
+            "coastal": [
+                [13.5, 85.5], [9.0, 85.0], [6.5, 83.5], [5.2, 81.0],
+                [5.5, 78.0], [7.0, 76.5], [8.5, 75.5], [10.5, 74.0],
+                [13.0, 73.0], [16.0, 72.0],
+            ],
+        }
+
+    async def fetch_conditions(lat: float, lng: float) -> dict:
+        """Fetch wave + wind conditions at a point."""
+        try:
+            async with httpx.AsyncClient(timeout=6.0) as client:
+                marine_task = client.get(
+                    "https://marine-api.open-meteo.com/v1/marine",
+                    params={
+                        "latitude": lat, "longitude": lng,
+                        "current": "wave_height,wind_wave_height,swell_wave_height",
+                    },
+                )
+                weather_task = client.get(
+                    "https://api.open-meteo.com/v1/forecast",
+                    params={
+                        "latitude": lat, "longitude": lng,
+                        "current": "wind_speed_10m,wind_direction_10m",
+                    },
+                )
+                marine_res, weather_res = await asyncio.gather(marine_task, weather_task, return_exceptions=True)
+
+            wave_h = 0.0
+            swell_h = 0.0
+            wind_spd = 0.0
+
+            if not isinstance(marine_res, Exception) and marine_res.status_code == 200:
+                mc = marine_res.json().get("current", {})
+                wave_h  = mc.get("wave_height", 0) or 0
+                swell_h = mc.get("swell_wave_height", 0) or 0
+
+            if not isinstance(weather_res, Exception) and weather_res.status_code == 200:
+                wc = weather_res.json().get("current", {})
+                wind_spd = wc.get("wind_speed_10m", 0) or 0
+
+            return {"lat": lat, "lng": lng, "wave_h": wave_h, "swell_h": swell_h, "wind_spd": wind_spd}
+        except Exception:
+            return {"lat": lat, "lng": lng, "wave_h": 0, "swell_h": 0, "wind_spd": 0}
+
+    def score_conditions(conds: list) -> float:
+        """Lower score = safer/calmer conditions."""
+        total = 0.0
+        for c in conds:
+            total += c["wave_h"] * 2.0      # wave height heavily penalised
+            total += c["swell_h"] * 1.5     # swell moderate penalty
+            total += c["wind_spd"] * 0.1    # wind light penalty
+        return total
+
+    # Sample 4 evenly-spaced waypoints from each candidate for condition checks
+    best_name = "standard"
+    best_score = float("inf")
+    all_scores = {}
+    all_conditions = {}
+
+    if crosses:
+        for name, bridge in candidates.items():
+            indices = [int(i * (len(bridge) - 1) / 3) for i in range(4)]
+            sample_pts = [bridge[i] for i in indices]
+
+            conds = await asyncio.gather(*[fetch_conditions(p[0], p[1]) for p in sample_pts])
+            sc = score_conditions(conds)
+            all_scores[name] = round(sc, 2)
+            all_conditions[name] = conds
+            if sc < best_score:
+                best_score = sc
+                best_name = name
+
+    # Generate full smooth route along best path
+    if crosses:
+        best_bridge = candidates[best_name]
+    else:
+        best_bridge = build_sea_bridge(req.origin_lat, req.origin_lng,
+                                       req.destination_lat, req.destination_lng)
+
+    all_pts = [[req.origin_lat, req.origin_lng], *best_bridge, [req.destination_lat, req.destination_lng]]
+    waypoints = []
+    steps = 20
+    for i in range(len(all_pts) - 1):
+        la1, ln1 = all_pts[i]
+        la2, ln2 = all_pts[i + 1]
+        for j in range(steps):
+            t = j / steps
+            st = t * t * (3 - 2 * t)
+            waypoints.append({"lat": la1 + (la2 - la1) * st, "lng": ln1 + (ln2 - ln1) * st})
+    waypoints.append({"lat": all_pts[-1][0], "lng": all_pts[-1][1]})
+
+    # Vessel specs
+    vessel_specs = {
+        "Container Ship": {"speed": 22, "consumption": 280},
+        "Bulk Carrier":   {"speed": 14, "consumption": 45},
+        "Tanker (Crude)": {"speed": 15, "consumption": 50},
+        "LNG Carrier":    {"speed": 19, "consumption": 120},
+        "RORO Vessel":    {"speed": 20, "consumption": 40},
+        "General Cargo":  {"speed": 14, "consumption": 35},
+        "Tug & Barge":    {"speed": 8,  "consumption": 25},
+    }
+    spec = vessel_specs.get(req.vessel_type, vessel_specs["General Cargo"])
+    distance_nm = haversine_nm(req.origin_lat, req.origin_lng, req.destination_lat, req.destination_lng)
+    distance_km = distance_nm * 1.852
+    eta_hours = distance_nm / spec["speed"] if spec["speed"] > 0 else 0
+    fuel_required_tons = (eta_hours / 24) * spec["consumption"]
+
+    return {
+        "distance_km":       round(distance_km, 1),
+        "distance_nm":       round(distance_nm, 1),
+        "eta_hours":         round(eta_hours, 1),
+        "vessel_type":       req.vessel_type,
+        "fuel_required_tons": round(fuel_required_tons, 1),
+        "waypoints":         waypoints,
+        "route_selected":    best_name,
+        "route_scores":      all_scores,
+        "conditions_sample": all_conditions.get(best_name, []),
+        "timestamp":         datetime.utcnow().isoformat(),
     }
 
 

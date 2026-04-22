@@ -12,7 +12,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl:     'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-const ML_URL     = import.meta.env.VITE_ML_URL     || 'http://localhost:8000';
+const ML_URL     = import.meta.env.VITE_ML_URL     || 'http://localhost:8888';
 const OSRM_BASE  = 'https://router.project-osrm.org/route/v1/driving';
 
 const SPEED_KMPH = {
@@ -56,26 +56,38 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-function buildSeaBridge(srcLat, srcLng, dstLat, dstLng) {
-  const srcWest = srcLng < 78 && srcLat > 7;
-  const dstEast = dstLng > 79 && dstLat > 7;
-  const srcEast = srcLng > 79 && srcLat > 7;
-  const dstWest = dstLng < 78 && dstLat > 7;
-  if (!(( srcWest && dstEast) || (srcEast && dstWest))) return [];
-  return srcWest
-    ? [[8.2,76.5],[6.5,77.2],[5.6,79.2],[7.5,81.5]]
-    : [[7.5,81.5],[5.6,79.2],[6.5,77.2],[8.2,76.5]];
-}
-function seaWaypoints(srcLat, srcLng, dstLat, dstLng) {
-  const bridge = buildSeaBridge(srcLat, srcLng, dstLat, dstLng);
-  const all = [[srcLat,srcLng], ...bridge, [dstLat,dstLng]];
-  const pts = [];
-  for (let i = 0; i < all.length - 1; i++) {
-    const [la1,ln1] = all[i], [la2,ln2] = all[i+1];
-    for (let j = 0; j < 20; j++) { const t=j/20; pts.push([la1+(la2-la1)*t, ln1+(ln2-ln1)*t]); }
+async function fetchWaterRoute(src, dst, vesselType) {
+  try {
+    const { data } = await axios.post(`${ML_URL}/water/smart-route`, {
+      origin_lat: src.lat,
+      origin_lng: src.lng,
+      destination_lat: dst.lat,
+      destination_lng: dst.lng,
+      vessel_type: vesselType || 'Bulk Carrier',
+      quantity_tons: 1,
+    }, { timeout: 15000 });
+    return data.waypoints.map(w => [w.lat, w.lng]);
+  } catch {
+    // fallback: coastal exit → offshore route → coastal entry
+    const srcExit  = src.lng < 78 ? [[src.lat, src.lng - 0.15]] : [[src.lat, src.lng + 0.15]];
+    const dstEntry = dst.lng < 78 ? [[dst.lat, dst.lng - 0.15]] : [[dst.lat, dst.lng + 0.15]];
+    const mid = src.lng < 78
+      ? [[17.0,73.1],[15.5,73.7],[13.5,74.6],[11.5,75.4],[9.8,75.9],[8.5,76.5],[7.8,77.0],[7.0,77.5],[6.0,78.5],[5.7,80.0],[5.9,81.5],[7.0,82.5],[9.5,83.5],[12.5,84.5],[15.5,85.1]]
+      : [[15.5,85.1],[12.5,84.5],[9.5,83.5],[7.0,82.5],[5.9,81.5],[5.7,80.0],[6.0,78.5],[7.0,77.5],[7.8,77.0],[8.5,76.5],[9.8,75.9],[11.5,75.4],[13.5,74.6],[15.5,73.7],[17.0,73.1]];
+    const bridge = [...srcExit, ...mid, ...dstEntry];
+    const all = [[src.lat,src.lng], ...bridge, [dst.lat,dst.lng]];
+    const pts = [];
+    for (let i = 0; i < all.length - 1; i++) {
+      const [la1,ln1] = all[i], [la2,ln2] = all[i+1];
+      for (let j = 0; j < 25; j++) {
+        const t = j / 25;
+        const st = t * t * (3 - 2 * t);
+        pts.push([la1 + (la2 - la1) * st, ln1 + (ln2 - ln1) * st]);
+      }
+    }
+    pts.push(all[all.length - 1]);
+    return pts;
   }
-  pts.push(all[all.length-1]);
-  return pts;
 }
 
 async function fetchLandRoute(src, dst) {
@@ -88,30 +100,33 @@ async function fetchLandRoute(src, dst) {
   } catch { return [[src.lat,src.lng],[dst.lat,dst.lng]]; }
 }
 
-function getCurrentPosition(waypoints, createdAt, speedKmph) {
+function getCurrentPosition(waypoints, createdAt, speedKmph, fixedDistanceKm = null) {
   if (!waypoints?.length) return null;
-  let totalKm = 0;
+  let waypointKm = 0;
   for (let i = 0; i < waypoints.length - 1; i++)
-    totalKm += haversineKm(waypoints[i][0], waypoints[i][1], waypoints[i+1][0], waypoints[i+1][1]);
+    waypointKm += haversineKm(waypoints[i][0], waypoints[i][1], waypoints[i+1][0], waypoints[i+1][1]);
 
+  // Use stored distance if available (keeps ETA consistent across route recalculations)
+  const totalKm  = fixedDistanceKm || waypointKm;
   const totalMs  = (totalKm / speedKmph) * 3600 * 1000;
   const elapsed  = Date.now() - new Date(createdAt).getTime();
   const progress = Math.min(elapsed / totalMs, 1.0);
 
-  const targetKm = progress * totalKm;
+  const targetKm = progress * waypointKm;
   let covered = 0;
   for (let i = 0; i < waypoints.length - 1; i++) {
     const segKm = haversineKm(waypoints[i][0], waypoints[i][1], waypoints[i+1][0], waypoints[i+1][1]);
     if (covered + segKm >= targetKm) {
       const t = (targetKm - covered) / segKm;
+      const coveredKm = Math.round(progress * totalKm);
       return {
-        lat:      waypoints[i][0] + (waypoints[i+1][0] - waypoints[i][0]) * t,
-        lng:      waypoints[i][1] + (waypoints[i+1][1] - waypoints[i][1]) * t,
+        lat:         waypoints[i][0] + (waypoints[i+1][0] - waypoints[i][0]) * t,
+        lng:         waypoints[i][1] + (waypoints[i+1][1] - waypoints[i][1]) * t,
         progress,
-        coveredKm: Math.round(targetKm),
-        totalKm:   Math.round(totalKm),
-        remainingKm: Math.round(totalKm - targetKm),
-        etaHours:  ((totalKm - targetKm) / speedKmph).toFixed(1),
+        coveredKm,
+        totalKm:     Math.round(totalKm),
+        remainingKm: Math.round(totalKm - coveredKm),
+        etaHours:    (((1 - progress) * totalKm) / speedKmph).toFixed(1),
       };
     }
     covered += segKm;
@@ -163,7 +178,7 @@ export default function LiveMap() {
     await Promise.all(list.map(async s => {
       if (routeCache.current[s.id]) return;
       const wps = s.type === 'water'
-        ? seaWaypoints(s.source.lat, s.source.lng, s.destination.lat, s.destination.lng)
+        ? await fetchWaterRoute(s.source, s.destination, s.vehicle_type)
         : await fetchLandRoute(s.source, s.destination);
       routeCache.current[s.id] = wps;
     }));
@@ -181,7 +196,8 @@ export default function LiveMap() {
 
       // If rerouted, calculate from reroute start time; otherwise from shipment creation
       const startTime = routeStartTimes[s.id] || s.created_at;
-      const pos = getCurrentPosition(wps, startTime, speed);
+      const fixedDist = s.route_meta?.distance_km || null;
+      const pos = getCurrentPosition(wps, startTime, speed, fixedDist);
       if (!pos) continue;
       newPositions[s.id] = pos;
       if (pos.progress >= 1.0) autoFulfill.push(s.id);

@@ -10,7 +10,7 @@ import {
 import { supabase } from '../utils/supabase';
 import useSimulationStore from '../store/useSimulationStore';
 
-const ML_URL    = import.meta.env.VITE_ML_URL || 'http://localhost:8000';
+const ML_URL    = import.meta.env.VITE_ML_URL || 'http://localhost:8888';
 const OSRM_BASE = 'https://router.project-osrm.org/route/v1/driving';
 const STEP_DELAY = { 1: 900, 2: 450, 5: 180, 10: 90 };
 
@@ -146,13 +146,33 @@ function SimulateMap({ shipmentId }) {
         setShipment(s);
         setCorridor(resolveCorridor(s.source?.name, s.destination?.name));
 
-        // Fetch OSRM route
-        const coord = `${s.source.lng},${s.source.lat};${s.destination.lng},${s.destination.lat}`;
-        const { data } = await axios.get(
-          `${OSRM_BASE}/${coord}?overview=full&geometries=geojson`, { timeout: 10000 }
-        );
+        // Fetch route — water uses ML backend, land uses OSRM
+        let wps;
+        if (s.type === 'water') {
+          const srcLat  = s.source?.lat;
+          const srcLng  = s.source?.lng;
+          const dstLat  = s.destination?.lat;
+          const dstLng  = s.destination?.lng;
+          if (!srcLat || !srcLng || !dstLat || !dstLng)
+            throw new Error(`Missing coordinates — src:(${srcLat},${srcLng}) dst:(${dstLat},${dstLng})`);
+
+          const { data } = await axios.post(`${ML_URL}/water/route`, {
+            origin_lat:      srcLat,
+            origin_lng:      srcLng,
+            destination_lat: dstLat,
+            destination_lng: dstLng,
+            vessel_type:     s.vehicle_type || 'Bulk Carrier',
+            quantity_tons:   1,
+          }, { timeout: 10000 });
+          wps = data.waypoints.map(w => ({ lat: w.lat, lng: w.lng }));
+        } else {
+          const coord = `${s.source.lng},${s.source.lat};${s.destination.lng},${s.destination.lat}`;
+          const { data } = await axios.get(
+            `${OSRM_BASE}/${coord}?overview=full&geometries=geojson`, { timeout: 10000 }
+          );
+          wps = data.routes[0].geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+        }
         if (cancelled) return;
-        const wps = data.routes[0].geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
         setWaypoints(wps);
         setReady(true);
       } catch (err) {
