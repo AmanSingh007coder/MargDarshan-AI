@@ -1,29 +1,24 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Navigation, RefreshCw } from 'lucide-react';
+import { Navigation, RefreshCw, Truck, Ship, MapPin, Calendar } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 
-const STATUS_BADGE = {
-  in_transit: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30',
-  fulfilled:  'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-  cancelled:  'bg-red-500/10 text-red-400 border-red-500/30',
+const STATUS_THEME = {
+  in_transit: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
+  fulfilled: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+  cancelled: 'text-red-400 bg-red-500/10 border-red-500/20',
 };
 
 const STATUS_LABEL = {
   in_transit: 'In Transit',
-  fulfilled:  'Fulfilled',
-  cancelled:  'Cancelled',
-};
-
-const TYPE_BADGE = {
-  land:  'bg-cyan-500/10 text-cyan-400',
-  water: 'bg-blue-500/10 text-blue-400',
+  fulfilled: 'Delivered',
+  cancelled: 'Aborted',
 };
 
 export default function MyShipments() {
   const [shipments, setShipments] = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const fetchShipments = () => {
     setLoading(true);
@@ -42,98 +37,114 @@ export default function MyShipments() {
   useEffect(fetchShipments, []);
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-black text-white uppercase italic tracking-tighter">My Shipments</h1>
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      {/* Header */}
+      <div className="flex justify-between items-end border-b border-white/5 pb-6">
+        <div>
+          <h1 className="text-3xl font-black text-white uppercase italic tracking-tighter leading-none">My Shipments</h1>
+          <p className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.3em] mt-2">Logistics Command Center</p>
+        </div>
         <button
           onClick={fetchShipments}
-          className="p-2 text-slate-500 hover:text-white transition rounded-xl hover:bg-white/5"
+          className="p-3 bg-white/5 text-slate-400 hover:text-white transition-all rounded-xl border border-white/5 hover:bg-white/10"
         >
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
 
       {error && (
-        <div className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 p-3 rounded-xl">{error}</div>
+        <div className="text-red-400 text-xs font-bold uppercase tracking-widest bg-red-500/10 border border-red-500/20 p-4 rounded-2xl">
+          Manifest Error: {error}
+        </div>
       )}
 
-      <div className="bg-[#050810] border border-white/5 rounded-2xl overflow-hidden shadow-2xl">
-        <table className="w-full text-left border-collapse font-sans">
-          <thead>
-            <tr className="bg-white/[0.02] text-[10px] text-slate-500 uppercase tracking-widest font-black">
-              <th className="p-5">Shipment ID</th>
-              <th className="p-5">Type</th>
-              <th className="p-5">Vehicle</th>
-              <th className="p-5">Route</th>
-              <th className="p-5">Status</th>
-              <th className="p-5 text-right">Track</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/5">
-            {loading && (
-              <tr>
-                <td colSpan={6} className="p-8 text-center text-slate-500 text-sm">Loading…</td>
-              </tr>
-            )}
-            {!loading && shipments.length === 0 && !error && (
-              <tr>
-                <td colSpan={6} className="p-8 text-center text-slate-500 text-sm">
-                  No shipments yet.{' '}
-                  <Link to="/dashboard/new-shipment" className="text-cyan-400 underline">Create one.</Link>
-                </td>
-              </tr>
-            )}
-            {shipments.map((s) => (
-              <tr key={s.id} className="hover:bg-white/[0.01] transition-colors">
-                {/* Shipment ID */}
-                <td className="p-5 font-mono text-cyan-500 text-xs font-bold">{s.display_id}</td>
-
-                {/* Type badge */}
-                <td className="p-5">
-                  <span className={`px-2 py-1 rounded text-[9px] font-black uppercase ${TYPE_BADGE[s.type] || TYPE_BADGE.land}`}>
-                    {s.type}
-                  </span>
-                </td>
-
-                {/* Vehicle */}
-                <td className="p-5 text-sm text-slate-300 font-medium max-w-[140px] truncate">
-                  {s.vehicle_type}
-                </td>
-
-                {/* Route */}
-                <td className="p-5 text-sm text-slate-400">
-                  <span className="flex items-center gap-1.5">
-                    {s.source?.name}
-                    <Navigation size={11} className="text-slate-600 shrink-0" />
-                    {s.destination?.name}
-                  </span>
-                </td>
-
-                {/* Status badge */}
-                <td className="p-5">
-                  <span className={`px-2 py-1 rounded-md text-[9px] font-black border ${STATUS_BADGE[s.status] || STATUS_BADGE.in_transit}`}>
+      {/* Grid Layout */}
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-72 bg-white/[0.02] border border-white/5 rounded-[32px] animate-pulse" />
+          ))}
+        </div>
+      ) : shipments.length === 0 ? (
+        <div className="py-24 text-center bg-white/[0.01] border border-white/5 rounded-[40px] border-dashed">
+          <Truck className="text-slate-800 mx-auto mb-4" size={40} />
+          <p className="text-slate-500 text-xs font-black uppercase tracking-widest">No Active Manifests</p>
+          <Link to="/dashboard/new-shipment" className="text-cyan-500 text-[10px] font-black uppercase tracking-widest mt-6 inline-block border border-cyan-500/20 px-6 py-2 rounded-full hover:bg-cyan-500/10 transition-all">
+            Deploy New Shipment
+          </Link>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {shipments.map((s) => (
+            <div 
+              key={s.id} 
+              className="group bg-[#0A0F1C] border border-white/5 rounded-[32px] p-6 transition-all duration-500 hover:border-white/20 hover:bg-[#0D1424] flex flex-col justify-between shadow-2xl"
+            >
+              <div className="relative space-y-6">
+                {/* Header: Type & Status */}
+                <div className="flex justify-between items-center">
+                  <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/5 text-slate-300 group-hover:text-cyan-400 group-hover:border-cyan-500/20 transition-all">
+                    {s.type === 'water' ? <Ship size={20} /> : <Truck size={20} />}
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${STATUS_THEME[s.status] || STATUS_THEME.in_transit}`}>
                     {STATUS_LABEL[s.status] || s.status}
                   </span>
-                </td>
+                </div>
 
-                {/* Track link — only for in_transit */}
-                <td className="p-5 text-right">
-                  {s.status === 'in_transit' ? (
-                    <Link
-                      to={`/tracker/${s.id}`}
-                      className="text-xs font-black text-cyan-400 hover:text-cyan-300 uppercase tracking-widest transition"
-                    >
-                      Track →
-                    </Link>
-                  ) : (
-                    <span className="text-xs text-slate-600">—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                {/* ID & Vehicle */}
+                <div>
+                  <h3 className="text-white font-black font-mono text-xl tracking-tight uppercase group-hover:text-cyan-500 transition-colors">{s.display_id}</h3>
+                  <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest mt-1">{s.vehicle_type}</p>
+                </div>
+
+                {/* Discrete Gradient Path Visualizer */}
+                <div className="space-y-1 py-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-2.5 h-2.5 rounded-full bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.5)] z-10" />
+                    <span className="text-xs font-black text-slate-200 truncate tracking-tight">{s.source?.name}</span>
+                  </div>
+                  
+                  {/* The Discrete Gradient Line */}
+                  <div className="ml-1 flex flex-col gap-1 py-1">
+                    <div className="w-[2px] h-2 bg-gradient-to-b from-cyan-500 to-yellow-400 rounded-full ml-[3px]" />
+                    <div className="w-[2px] h-2 bg-yellow-400 rounded-full ml-[3px] opacity-60" />
+                    <div className="w-[2px] h-2 bg-gradient-to-b from-yellow-400 to-orange-500 rounded-full ml-[3px]" />
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <MapPin size={14} className="text-orange-500 fill-orange-500/20" />
+                    <span className="text-xs font-black text-slate-200 truncate tracking-tight">{s.destination?.name}</span>
+                  </div>
+                </div>
+
+                {/* Metadata Footer */}
+                <div className="flex items-center justify-between border-t border-white/5 pt-4">
+                  <div className="flex items-center gap-1.5 text-white text-[9px] font-bold uppercase tracking-[0.2em]">
+                    <Calendar size={12} />
+                    {new Date(s.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Button */}
+              <div className="mt-8">
+                {s.status === 'in_transit' ? (
+                  <Link
+                    to={`/tracker/${s.id}`}
+                    className="block w-full bg-cyan-500 text-black hover:bg-cyan-600 hover:text-white text-center py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] transition-all duration-300 shadow-xl active:scale-[0.98]"
+                  >
+                    Track Activity
+                  </Link>
+                ) : (
+                  <div className="w-full bg-white/[0.02] text-slate-700 text-center py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border border-white/5">
+                    Entry Archived
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
