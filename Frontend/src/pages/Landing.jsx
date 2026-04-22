@@ -91,7 +91,7 @@ export default function Landing() {
       <nav style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 48px', height: '68px', background: 'rgba(10,13,18,0.9)', backdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{ width: '30px', height: '30px', background: 'linear-gradient(135deg,#22d3b8,#0ea5e9)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M3 12h18M3 6l9-3 9 3M3 18l9 3 9-3"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M3 12h18M3 6l9-3 9 3M3 18l9 3 9-3" /></svg>
           </div>
           <span style={{ fontWeight: 600, fontSize: '16px', letterSpacing: '-0.01em' }}>MargDarshan<span style={{ color: '#22d3b8' }}>·</span>AI</span>
         </div>
@@ -124,7 +124,7 @@ export default function Landing() {
           <div style={{ display: 'flex', gap: '14px', marginTop: '40px', animation: heroVisible ? 'fadeUp .7s .38s ease forwards' : 'none', opacity: 0 }}>
             <button className="cta-primary" onClick={() => navigate('/register')}>Start free trial →</button>
             <button className="cta-secondary" onClick={() => document.getElementById('demo')?.scrollIntoView({ behavior: 'smooth' })}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" fillOpacity="0.2" stroke="currentColor" strokeWidth="1.5" fill="none"/><polygon points="10,8 16,12 10,16"/></svg>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" fillOpacity="0.2" stroke="currentColor" strokeWidth="1.5" fill="none" /><polygon points="10,8 16,12 10,16" /></svg>
               Watch demo
             </button>
           </div>
@@ -181,10 +181,10 @@ export default function Landing() {
           </h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '20px', position: 'relative' }}>
             {[
-              { num: '1', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8l5 2v4h-5"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>, title: 'Register your fleet', desc: 'Onboard trucks, drivers, and cargo in minutes.' },
-              { num: '2', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M3 6l9-3 9 3v7c0 5-9 9-9 9s-9-4-9-9V6z"/></svg>, title: 'Define your routes', desc: 'Origin to destination — we generate the corridor.' },
-              { num: '3', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>, title: 'AI scores risk live', desc: 'Weather, terrain, unrest — fused every 5 seconds.' },
-              { num: '4', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>, title: 'Reroute automatically', desc: 'Above 80% risk, the safer path takes over.' },
+              { num: '1', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><rect x="1" y="3" width="15" height="13" rx="2" /><path d="M16 8l5 2v4h-5" /><circle cx="5.5" cy="18.5" r="2.5" /><circle cx="18.5" cy="18.5" r="2.5" /></svg>, title: 'Register your fleet', desc: 'Onboard trucks, drivers, and cargo in minutes.' },
+              { num: '2', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M3 6l9-3 9 3v7c0 5-9 9-9 9s-9-4-9-9V6z" /></svg>, title: 'Define your routes', desc: 'Origin to destination — we generate the corridor.' },
+              { num: '3', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><path d="M12 8v4l3 3" /></svg>, title: 'AI scores risk live', desc: 'Weather, terrain, unrest — fused every 5 seconds.' },
+              { num: '4', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>, title: 'Reroute automatically', desc: 'Above 80% risk, the safer path takes over.' },
             ].map(({ num, icon, title, desc }, i) => (
               <div key={num} className="step-card" style={{ transitionDelay: `${i * 0.08}s` }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
@@ -211,12 +211,12 @@ export default function Landing() {
           </h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '18px' }}>
             {[
-              { num: '01', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2z"/><path d="M12 8v4l3 3"/></svg>, title: 'Risk Intelligence', desc: 'XGBoost scores every lat/long 0–100% using a multi-modal feature stack.' },
-              { num: '02', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>, title: 'Live Rerouting', desc: 'Dijkstra-based path optimization kicks in the moment risk crosses 80%.' },
-              { num: '03', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M20 17.5c0 .8-.7 1.5-1.5 1.5h-13A1.5 1.5 0 014 17.5V6.5C4 5.7 4.7 5 5.5 5h13c.8 0 1.5.7 1.5 1.5v11z"/><path d="M8 12l2 2 4-4"/></svg>, title: 'Multi-Signal Fusion', desc: 'Weather + landslide history + unrest detection, fused into one score.' },
-              { num: '04', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>, title: 'Fleet Dashboard', desc: 'Every truck, every corridor, every risk — one command center.' },
-              { num: '05', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>, title: 'Instant Alerts', desc: 'Email, SMS, and in-app pings the moment a truck nears danger.' },
-              { num: '06', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>, title: 'AI Co-Pilot', desc: 'Ask anything — "which shipments are at risk tonight?" — in plain English.' },
+              { num: '01', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2z" /><path d="M12 8v4l3 3" /></svg>, title: 'Risk Intelligence', desc: 'XGBoost scores every lat/long 0–100% using a multi-modal feature stack.' },
+              { num: '02', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>, title: 'Live Rerouting', desc: 'Dijkstra-based path optimization kicks in the moment risk crosses 80%.' },
+              { num: '03', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M20 17.5c0 .8-.7 1.5-1.5 1.5h-13A1.5 1.5 0 014 17.5V6.5C4 5.7 4.7 5 5.5 5h13c.8 0 1.5.7 1.5 1.5v11z" /><path d="M8 12l2 2 4-4" /></svg>, title: 'Multi-Signal Fusion', desc: 'Weather + landslide history + unrest detection, fused into one score.' },
+              { num: '04', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>, title: 'Fleet Dashboard', desc: 'Every truck, every corridor, every risk — one command center.' },
+              { num: '05', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" /></svg>, title: 'Instant Alerts', desc: 'Email, SMS, and in-app pings the moment a truck nears danger.' },
+              { num: '06', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" /></svg>, title: 'AI Co-Pilot', desc: 'Ask anything — "which shipments are at risk tonight?" — in plain English.' },
             ].map(({ num, icon, title, desc }) => (
               <div key={num} className="feature-card">
                 <span className="feature-num">{num}</span>
@@ -246,7 +246,7 @@ export default function Landing() {
             {/* Chrome bar */}
             <div style={{ background: '#161b22', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
               <div style={{ display: 'flex', gap: '6px' }}>
-                {['#ef4444','#f59e0b','#22c55e'].map(c => <div key={c} style={{ width: '10px', height: '10px', borderRadius: '50%', background: c }} />)}
+                {['#ef4444', '#f59e0b', '#22c55e'].map(c => <div key={c} style={{ width: '10px', height: '10px', borderRadius: '50%', background: c }} />)}
               </div>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: '7px' }}>
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22d3b8', display: 'inline-block', animation: 'blink 1.4s infinite' }} />
@@ -261,7 +261,7 @@ export default function Landing() {
                   <div style={{ width: '24px', height: '24px', background: 'linear-gradient(135deg,#22d3b8,#0ea5e9)', borderRadius: '6px' }} />
                   <span style={{ fontSize: '13px', fontWeight: 600 }}>Dashook</span>
                 </div>
-                {['Overview','Live Route','Settings','Danger'].map((l, i) => (
+                {['Overview', 'Live Route', 'Settings', 'Danger'].map((l, i) => (
                   <div key={l} style={{ padding: '8px 10px', borderRadius: '6px', marginBottom: '4px', background: i === 1 ? 'rgba(34,211,184,0.1)' : 'transparent', color: i === 1 ? '#22d3b8' : '#6b7280', fontSize: '12px', fontWeight: i === 1 ? 600 : 400 }}>{l}</div>
                 ))}
               </div>
@@ -271,31 +271,31 @@ export default function Landing() {
                 <svg width="100%" height="100%" viewBox="0 0 400 340" preserveAspectRatio="xMidYMid meet">
                   <defs>
                     <radialGradient id="glow1" cx="50%" cy="50%" r="50%">
-                      <stop offset="0%" stopColor="#ef4444" stopOpacity="0.6"/>
-                      <stop offset="100%" stopColor="#ef4444" stopOpacity="0"/>
+                      <stop offset="0%" stopColor="#ef4444" stopOpacity="0.6" />
+                      <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
                     </radialGradient>
                     <radialGradient id="glow2" cx="50%" cy="50%" r="50%">
-                      <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.4"/>
-                      <stop offset="100%" stopColor="#f59e0b" stopOpacity="0"/>
+                      <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.4" />
+                      <stop offset="100%" stopColor="#f59e0b" stopOpacity="0" />
                     </radialGradient>
                   </defs>
                   {/* simplified India shape */}
-                  <path d="M160,40 L220,35 L270,50 L300,80 L310,120 L290,160 L300,200 L270,250 L240,280 L200,310 L170,280 L150,240 L130,200 L110,160 L120,120 L130,80 Z" fill="rgba(34,211,184,0.04)" stroke="rgba(34,211,184,0.15)" strokeWidth="1"/>
+                  <path d="M160,40 L220,35 L270,50 L300,80 L310,120 L290,160 L300,200 L270,250 L240,280 L200,310 L170,280 L150,240 L130,200 L110,160 L120,120 L130,80 Z" fill="rgba(34,211,184,0.04)" stroke="rgba(34,211,184,0.15)" strokeWidth="1" />
                   {/* Route line Mumbai-Pune */}
-                  <path d="M155,220 L170,210 L180,200 L190,190 L195,180" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeDasharray="6 3" opacity="0.9"/>
+                  <path d="M155,220 L170,210 L180,200 L190,190 L195,180" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeDasharray="6 3" opacity="0.9" />
                   {/* Glow blobs (risk zones) */}
                   <ellipse cx="185" cy="195" rx="28" ry="20" fill="url(#glow1)" />
                   <ellipse cx="165" cy="218" rx="18" ry="14" fill="url(#glow2)" />
                   {/* Truck dots */}
                   <circle cx="155" cy="222" r="5" fill="#22d3b8" opacity="0.9">
-                    <animate attributeName="r" values="5;8;5" dur="1.8s" repeatCount="indefinite"/>
-                    <animate attributeName="opacity" values="0.9;0.4;0.9" dur="1.8s" repeatCount="indefinite"/>
+                    <animate attributeName="r" values="5;8;5" dur="1.8s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="0.9;0.4;0.9" dur="1.8s" repeatCount="indefinite" />
                   </circle>
                   <circle cx="175" cy="207" r="5" fill="#ef4444" opacity="0.9">
-                    <animate attributeName="r" values="5;8;5" dur="2.1s" repeatCount="indefinite"/>
-                    <animate attributeName="opacity" values="0.9;0.4;0.9" dur="2.1s" repeatCount="indefinite"/>
+                    <animate attributeName="r" values="5;8;5" dur="2.1s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="0.9;0.4;0.9" dur="2.1s" repeatCount="indefinite" />
                   </circle>
-                  <circle cx="192" cy="183" r="4" fill="#22c55e" opacity="0.9"/>
+                  <circle cx="192" cy="183" r="4" fill="#22c55e" opacity="0.9" />
                   {/* Labels */}
                   <text x="135" y="232" fill="#6b7280" fontSize="8" fontFamily="monospace">Mumbai</text>
                   <text x="192" y="178" fill="#6b7280" fontSize="8" fontFamily="monospace">Pune</text>
@@ -323,9 +323,9 @@ export default function Landing() {
                 {/* Donut chart placeholder */}
                 <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'center' }}>
                   <svg width="80" height="80" viewBox="0 0 80 80">
-                    <circle cx="40" cy="40" r="30" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10"/>
-                    <circle cx="40" cy="40" r="30" fill="none" stroke="#f59e0b" strokeWidth="10" strokeDasharray="113 75" strokeLinecap="round" transform="rotate(-90 40 40)"/>
-                    <circle cx="40" cy="40" r="30" fill="none" stroke="#22d3b8" strokeWidth="10" strokeDasharray="50 138" strokeDashoffset="-113" strokeLinecap="round" transform="rotate(-90 40 40)"/>
+                    <circle cx="40" cy="40" r="30" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10" />
+                    <circle cx="40" cy="40" r="30" fill="none" stroke="#f59e0b" strokeWidth="10" strokeDasharray="113 75" strokeLinecap="round" transform="rotate(-90 40 40)" />
+                    <circle cx="40" cy="40" r="30" fill="none" stroke="#22d3b8" strokeWidth="10" strokeDasharray="50 138" strokeDashoffset="-113" strokeLinecap="round" transform="rotate(-90 40 40)" />
                     <text x="40" y="45" textAnchor="middle" fill="white" fontSize="13" fontWeight="600">64%</text>
                   </svg>
                 </div>
@@ -354,7 +354,7 @@ export default function Landing() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
               <div style={{ width: '28px', height: '28px', background: 'linear-gradient(135deg,#22d3b8,#0ea5e9)', borderRadius: '7px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M3 12h18M3 6l9-3 9 3M3 18l9 3 9-3"/></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M3 12h18M3 6l9-3 9 3M3 18l9 3 9-3" /></svg>
               </div>
               <span style={{ fontWeight: 600, fontSize: '15px' }}>MargDarshan<span style={{ color: '#22d3b8' }}>·</span>AI</span>
             </div>

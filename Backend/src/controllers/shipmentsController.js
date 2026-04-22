@@ -1,7 +1,7 @@
 const supabase = require('../utils/supabaseClient');
-const { getRiskScore } = require('../services/mlService');
+const { getRiskScore, resolveCorridor } = require('../services/mlService');
 const { getRoute, getReroute } = require('../services/routingService');
-const { computeRisk, alertTypeFromFactor } = require('../services/riskEngine');
+const { alertTypeFromFactor } = require('../services/riskEngine');
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -168,19 +168,31 @@ async function updatePosition(req, res, next) {
     // 1. Log position
     await supabase.from('position_logs').insert({ shipment_id: id, lat, lng });
 
-    // 2. Get ML risk scores
-    const mlScores = await getRiskScore(lat, lng);
-    const { total_risk, severity, dominant_factor } = computeRisk(mlScores);
+    // 2. Get ML risk scores — corridor required by FastAPI /predict
+    const corridor = resolveCorridor(shipment.origin_city, shipment.destination_city);
+    const mlScores = await getRiskScore(lat, lng, corridor);
+
+    const total_risk = mlScores.risk_score;
+    const severity   = mlScores.severity;
+
+    // Derive dominant factor from the breakdown for alert typing
+    const bd = mlScores.breakdown || {};
+    const factorScores = {
+      weather_risk:   bd.weather_risk  || 0,
+      landslide_risk: bd.landslide_risk || 0,
+      social_risk:    bd.protest_risk   || 0,
+    };
+    const dominant_factor = Object.entries(factorScores).sort((a, b) => b[1] - a[1])[0][0];
 
     // 3. Base shipment update
     const updatePayload = {
-      current_lat: lat,
-      current_lng: lng,
+      current_lat:        lat,
+      current_lng:        lng,
       current_risk_score: total_risk,
-      weather_risk: mlScores.weather_risk,
-      landslide_risk: mlScores.landslide_risk,
-      social_risk: mlScores.social_risk,
-      updated_at: new Date().toISOString(),
+      weather_risk:       bd.weather_risk  || 0,
+      landslide_risk:     bd.landslide_risk || 0,
+      social_risk:        bd.protest_risk   || 0,
+      updated_at:         new Date().toISOString(),
     };
 
     let alert_fired = false;
