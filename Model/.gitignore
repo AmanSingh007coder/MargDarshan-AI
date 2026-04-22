@@ -1,0 +1,10 @@
+# Environment variables - NEVER commit API keys
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Jupyter checkpoints
+.ipynb_checkpoints/

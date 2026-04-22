@@ -1,0 +1,32 @@
+{
+  "Mumbai-Pune": {
+    "code": 0,
+    "state": "Maharashtra",
+    "rain_risk": 0.284,
+    "road_risk": 0.75
+  },
+  "Pune-Nashik": {
+    "code": 1,
+    "state": "Maharashtra",
+    "rain_risk": 0.284,
+    "road_risk": 0.75
+  },
+  "Mumbai-Goa": {
+    "code": 2,
+    "state": "Goa",
+    "rain_risk": 0.077,
+    "road_risk": 0.055
+  },
+  "Bengaluru-Mangaluru": {
+    "code": 3,
+    "state": "Karnataka",
+    "rain_risk": 0.503,
+    "road_risk": 0.61
+  },
+  "Kochi-Kozhikode": {
+    "code": 4,
+    "state": "Kerala",
+    "rain_risk": 1.0,
+    "road_risk": 1.0
+  }
+}
