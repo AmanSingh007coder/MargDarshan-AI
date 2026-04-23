@@ -143,7 +143,7 @@ export default function SecurityDashboard() {
 
           <div className="flex items-center gap-4">
             <div className="bg-slate-900/80 backdrop-blur-md border border-slate-800 p-1.5 rounded-2xl flex shadow-inner">
-              {[['events', 'Threat Intelligence'], ['blocked', 'IP Prohibitions'], ['mfa', 'Two-Factor Auth']].map(([key, label]) => (
+              {[['events', 'Threat Intelligence'], ['blocked', 'IP Prohibitions']].map(([key, label]) => (
                 <button
                   key={key}
                   onClick={() => setTab(key)}

@@ -1,54 +1,54 @@
 import axios from 'axios';
 
-const OLLAMA_URL = 'http://localhost:11434/api/chat';
-const MODEL = 'mistral';
+const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const MODEL = 'llama-3.1-8b-instant';
 
-console.log('Using Ollama at:', OLLAMA_URL);
+const BASE_SYSTEM_PROMPT = `You are Margदर्शन AI, a logistics assistant for Indian supply chains. Keep answers short and clear. Risk: LOW=safe, MEDIUM=monitor, HIGH=alert, CRITICAL=reroute.`;
 
-const SYSTEM_PROMPT = `You are Margदर्शन AI, a logistics expert specializing in Indian supply chains.
-You help users understand shipment status, risk scores, route disruptions, and supply chain optimization.
-
-Risk Scale Guide:
-- LOW (0-39): Safe to proceed, normal operations
-- MEDIUM (40-59): Monitor closely, prepare contingency plans
-- HIGH (60-79): Increase vigilance, consider rerouting
-- CRITICAL (80-100): Reroute immediately, high danger zone
-
-Keep responses concise, actionable, and focused on logistics operations. Use bullet points for clarity.`;
-
-export async function sendMessage(conversationHistory) {
+export async function sendMessage(conversationHistory, shipmentContext = null) {
   try {
+    let systemContent = BASE_SYSTEM_PROMPT;
+
+    if (shipmentContext) {
+      systemContent += `\n\nCurrent shipment data:\n${shipmentContext}\n\nUse this data to answer questions about shipments accurately.`;
+    }
+
     const messages = conversationHistory.map(msg => ({
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.parts[0].text,
     }));
 
     const response = await axios.post(
-      OLLAMA_URL,
+      GROQ_URL,
       {
         model: MODEL,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: systemContent },
           ...messages,
         ],
-        stream: false,
+        max_tokens: 500,
       },
       {
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
         },
       }
     );
 
-    return response.data.message.content;
+    return response.data.choices[0].message.content;
   } catch (error) {
-    console.error('❌ Ollama API Error:');
+    console.error('❌ Groq API Error:');
     console.error('Status:', error.response?.status);
     console.error('Data:', error.response?.data);
     console.error('Message:', error.message);
 
-    if (error.message.includes('ECONNREFUSED')) {
-      throw new Error('Ollama server not running. Start it with: ollama serve');
+    if (!GROQ_API_KEY) {
+      throw new Error('Groq API key not configured. Add VITE_GROQ_API_KEY to your .env file.');
+    }
+    if (error.response?.status === 401) {
+      throw new Error('Invalid Groq API key. Check your VITE_GROQ_API_KEY in .env');
     }
     throw new Error('Failed to get response from AI. Please try again.');
   }

@@ -26,7 +26,7 @@ export default function Dashboard() {
   const [activeShipments, setActiveShipments] = useState(0);
   const [criticalAlerts, setCriticalAlerts] = useState(0);
   const [onTimeProbability, setOnTimeProbability] = useState(0);
-  const [selfHealingActions, setSelfHealingActions] = useState(0);
+  const [totalShipments, setTotalShipments] = useState(0);
   const [shipmentsList, setShipmentsList] = useState([]);
   const [activityFeed, setActivityFeed] = useState([]);
   const [riskForecast, setRiskForecast] = useState([]);
@@ -134,8 +134,11 @@ export default function Dashboard() {
         const onTimeCount = (shipments || []).filter(s => !s.risk_score || s.risk_score < 50).length;
         setOnTimeProbability(shipments?.length ? Math.round((onTimeCount / shipments.length) * 100) : 0);
 
-        // Mock self-healing actions
-        setSelfHealingActions(Math.floor(Math.random() * 20) + 5);
+        // Total shipments count
+        const { count: total } = await supabase
+          .from('shipments')
+          .select('*', { count: 'exact', head: true });
+        setTotalShipments(total || 0);
       } catch (error) {
         console.error('Error loading dashboard data:', error);
       }
@@ -212,12 +215,12 @@ export default function Dashboard() {
       trend: '+3%',
     },
     {
-      label: 'Self-Healing Actions',
-      value: selfHealingActions,
+      label: 'Total Shipments',
+      value: totalShipments,
       icon: Zap,
       color: '#a855f7',
       bg: 'rgba(168, 85, 247, 0.1)',
-      trend: '24h',
+      trend: 'all time',
     },
   ];
 
