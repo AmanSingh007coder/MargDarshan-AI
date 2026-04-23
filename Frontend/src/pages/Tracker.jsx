@@ -33,14 +33,22 @@ function resolveCorridor(src, dst) {
 function SimulatePicker() {
   const [shipments, setShipments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch]   = useState('');
 
   useEffect(() => {
     supabase.from('shipments')
       .select('id,display_id,vehicle_type,source,destination,type,status')
       .order('created_at', { ascending: false })
-      .limit(20)
+      .limit(50)
       .then(({ data }) => { setShipments(data || []); setLoading(false); });
   }, []);
+
+  const filtered = shipments.filter(s =>
+    !search ||
+    s.display_id?.toLowerCase().includes(search.toLowerCase()) ||
+    s.source?.name?.toLowerCase().includes(search.toLowerCase()) ||
+    s.destination?.name?.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700">
@@ -54,13 +62,20 @@ function SimulatePicker() {
             <p className="text-slate-500 text-[9px] font-black uppercase tracking-[0.3em] mt-1">Select manifest to initialize projection</p>
           </div>
         </div>
+        <input
+          type="text"
+          placeholder="Search by ID, port..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white placeholder-slate-500 focus:border-cyan-500 outline-none w-64"
+        />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {loading ? (
           [1, 2, 3].map(i => <div key={i} className="h-44 bg-white/[0.02] border border-white/5 rounded-[2rem] animate-pulse" />)
         ) : (
-          shipments.map(s => (
+          filtered.map(s => (
             <Link key={s.id} to={`/simulate/${s.id}`}
               className="group relative bg-[#050810] border border-white/5 hover:border-cyan-500/40 p-6 rounded-[2rem] transition-all duration-500 hover:-translate-y-2 overflow-hidden shadow-2xl">
               
@@ -111,6 +126,7 @@ function SimulateMap({ shipmentId }) {
   const [corridor, setCorridor] = useState('Mumbai-Pune');
   const [loadError, setLoadError] = useState('');
   const [ready, setReady] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   const {
     isSimulating,
@@ -127,7 +143,10 @@ function SimulateMap({ shipmentId }) {
 
   useEffect(() => {
     reset();
+    setReady(false);
+    setLoadError('');
     let cancelled = false;
+
     async function load() {
       try {
         const { data: s, error } = await supabase.from('shipments').select('*').eq('id', shipmentId).single();
@@ -136,32 +155,54 @@ function SimulateMap({ shipmentId }) {
         setShipment(s);
         setCorridor(resolveCorridor(s.source?.name, s.destination?.name));
 
-        // Fetch route — water uses ML backend, land uses OSRM
         let wps;
         if (s.type === 'water') {
-          const srcLat  = s.source?.lat;
-          const srcLng  = s.source?.lng;
-          const dstLat  = s.destination?.lat;
-          const dstLng  = s.destination?.lng;
+          const srcLat = s.source?.lat, srcLng = s.source?.lng;
+          const dstLat = s.destination?.lat, dstLng = s.destination?.lng;
           if (!srcLat || !srcLng || !dstLat || !dstLng)
             throw new Error(`Missing coordinates — src:(${srcLat},${srcLng}) dst:(${dstLat},${dstLng})`);
 
-          const { data } = await axios.post(`${ML_URL}/water/route`, {
-            origin_lat:      srcLat,
-            origin_lng:      srcLng,
-            destination_lat: dstLat,
-            destination_lng: dstLng,
-            vessel_type:     s.vehicle_type || 'Bulk Carrier',
-            quantity_tons:   1,
-          }, { timeout: 10000 });
-          wps = data.waypoints.map(w => ({ lat: w.lat, lng: w.lng }));
+          try {
+            const { data } = await axios.post(`${ML_URL}/water/route`, {
+              origin_lat: srcLat, origin_lng: srcLng,
+              destination_lat: dstLat, destination_lng: dstLng,
+              vessel_type: s.vehicle_type || 'Bulk Carrier', quantity_tons: 1,
+            }, { timeout: 12000 });
+            wps = data.waypoints.map(w => ({ lat: w.lat, lng: w.lng }));
+          } catch {
+            // Backend unavailable — use coastal bridge fallback
+            const isWest = srcLng < 78;
+            const bridge = isWest
+              ? [[17.0,73.1],[15.5,73.7],[13.5,74.6],[11.5,75.4],[9.8,75.9],[8.5,76.5],[7.8,77.0],[7.0,77.5],[6.0,78.5],[5.7,80.0],[5.9,81.5],[7.0,82.5],[9.5,83.5],[12.5,84.5],[15.5,85.1]]
+              : [[15.5,85.1],[12.5,84.5],[9.5,83.5],[7.0,82.5],[5.9,81.5],[5.7,80.0],[6.0,78.5],[7.0,77.5],[7.8,77.0],[8.5,76.5],[9.8,75.9],[11.5,75.4],[13.5,74.6],[15.5,73.7],[17.0,73.1]];
+            const allPts = [[srcLat,srcLng], ...bridge, [dstLat,dstLng]];
+            const pts = [];
+            for (let i = 0; i < allPts.length - 1; i++) {
+              const [la1,ln1] = allPts[i], [la2,ln2] = allPts[i+1];
+              for (let j = 0; j < 20; j++) {
+                const t = j / 20, st = t * t * (3 - 2 * t);
+                pts.push({ lat: la1 + (la2 - la1) * st, lng: ln1 + (ln2 - ln1) * st });
+              }
+            }
+            pts.push({ lat: dstLat, lng: dstLng });
+            wps = pts;
+          }
         } else {
-          const coord = `${s.source.lng},${s.source.lat};${s.destination.lng},${s.destination.lat}`;
-          const { data } = await axios.get(
-            `${OSRM_BASE}/${coord}?overview=full&geometries=geojson`, { timeout: 10000 }
-          );
-          wps = data.routes[0].geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+          try {
+            const coord = `${s.source.lng},${s.source.lat};${s.destination.lng},${s.destination.lat}`;
+            const { data } = await axios.get(
+              `${OSRM_BASE}/${coord}?overview=full&geometries=geojson`, { timeout: 12000 }
+            );
+            wps = data.routes[0].geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+          } catch {
+            // OSRM unavailable — straight line fallback
+            wps = [
+              { lat: s.source.lat, lng: s.source.lng },
+              { lat: s.destination.lat, lng: s.destination.lng },
+            ];
+          }
         }
+
         if (cancelled) return;
         setWaypoints(wps);
         setReady(true);
@@ -171,7 +212,7 @@ function SimulateMap({ shipmentId }) {
     }
     load();
     return () => { cancelled = true; };
-  }, [shipmentId, reset, setWaypoints]);
+  }, [shipmentId, reset, setWaypoints, retryCount]);
 
   useEffect(() => {
     if (!ready || !containerRef.current || mapRef.current || !waypoints.length) return;
@@ -238,8 +279,23 @@ function SimulateMap({ shipmentId }) {
       
       {!ready && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#020617] gap-4">
-          <Loader2 size={36} className="text-cyan-400 animate-spin" />
-          <p className="text-white font-black uppercase tracking-widest text-xs">Calibrating Route...</p>
+          {loadError ? (
+            <>
+              <AlertTriangle size={32} className="text-red-400" />
+              <p className="text-red-400 font-black uppercase tracking-widest text-xs text-center max-w-xs">{loadError}</p>
+              <button
+                onClick={() => setRetryCount(c => c + 1)}
+                className="mt-2 px-6 py-2 bg-cyan-500 text-black text-xs font-black uppercase rounded-xl hover:bg-cyan-400 transition"
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            <>
+              <Loader2 size={36} className="text-cyan-400 animate-spin" />
+              <p className="text-white font-black uppercase tracking-widest text-xs">Calibrating Route...</p>
+            </>
+          )}
         </div>
       )}
 

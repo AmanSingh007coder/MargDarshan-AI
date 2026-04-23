@@ -1,380 +1,718 @@
-import { useNavigate } from 'react-router-dom'
-import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
 
-/* ─── tiny hook: fires once when element enters viewport ─── */
+// ── Animated counter ──────────────────────────────────────────────────────
+function Counter({ target, suffix = '', prefix = '' }) {
+  const [count, setCount] = useState(0);
+  const ref = useRef(null);
+  const seen = useRef(false);
+  useEffect(() => {
+    const obs = new IntersectionObserver(([e]) => {
+      if (!e.isIntersecting || seen.current) return;
+      seen.current = true;
+      const end = parseFloat(target);
+      const isFloat = String(target).includes('.');
+      const dur = 1400, step = 16;
+      let cur = 0;
+      const t = setInterval(() => {
+        cur = Math.min(cur + end / (dur / step), end);
+        setCount(isFloat ? cur.toFixed(1) : Math.floor(cur));
+        if (cur >= end) clearInterval(t);
+      }, step);
+    }, { threshold: 0.2 });
+    if (ref.current) obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, [target]);
+  return <span ref={ref}>{prefix}{count}{suffix}</span>;
+}
+
+// ── Scroll-reveal hook ────────────────────────────────────────────────────
 function useReveal() {
-  const ref = useRef(null)
-  const [visible, setVisible] = useState(false)
+  const ref = useRef(null);
+  const [vis, setVis] = useState(false);
   useEffect(() => {
-    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect() } }, { threshold: 0.15 })
-    if (ref.current) obs.observe(ref.current)
-    return () => obs.disconnect()
-  }, [])
-  return [ref, visible]
+    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setVis(true); obs.disconnect(); } }, { threshold: 0.1 });
+    if (ref.current) obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, []);
+  return [ref, vis];
 }
 
-/* ─── section label pill ─── */
-function SectionTag({ number, label }) {
+// ── Globe Canvas ──────────────────────────────────────────────────────────
+function Globe() {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let W = 0, H = 0, ctx;
+    let frame;
+    const T0 = performance.now();
+
+    function resize() {
+      W = canvas.offsetWidth;
+      H = canvas.offsetHeight;
+      canvas.width = W * dpr;
+      canvas.height = H * dpr;
+      ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    // Major logistics nodes
+    const NODES = [
+      { lat: 18.96, lng: 72.82, c: '6,182,212', r: 3.5 }, // Mumbai
+      { lat: 22.57, lng: 88.36, c: '6,182,212', r: 3 }, // Kolkata
+      { lat: 13.08, lng: 80.27, c: '6,182,212', r: 3 }, // Chennai
+      { lat: 9.93, lng: 76.26, c: '6,182,212', r: 2.5 }, // Kochi
+      { lat: 28.61, lng: 77.20, c: '249,115,22', r: 3.5 }, // Delhi
+      { lat: 1.35, lng: 103.82, c: '6,182,212', r: 3 }, // Singapore
+      { lat: 25.20, lng: 55.27, c: '6,182,212', r: 3 }, // Dubai
+      { lat: 51.50, lng: -0.12, c: '99,102,241', r: 2.5 }, // London
+      { lat: 31.22, lng: 121.46, c: '6,182,212', r: 2.5 }, // Shanghai
+      { lat: 22.30, lng: 114.17, c: '6,182,212', r: 2.5 }, // Hong Kong
+    ];
+
+    const ROUTES = [
+      // Domestic (land) — orange
+      { a: 0, b: 4, t: 'land', spd: 0.09 },  // Mumbai-Delhi
+      { a: 0, b: 2, t: 'land', spd: 0.08 },  // Mumbai-Chennai
+      { a: 2, b: 1, t: 'land', spd: 0.07 },  // Chennai-Kolkata
+      { a: 4, b: 1, t: 'land', spd: 0.085 }, // Delhi-Kolkata
+      { a: 2, b: 3, t: 'land', spd: 0.095 }, // Chennai-Kochi
+      { a: 0, b: 3, t: 'land', spd: 0.075 }, // Mumbai-Kochi
+
+      // Sea routes — cyan
+      { a: 0, b: 6, t: 'sea', spd: 0.06 },  // Mumbai-Dubai
+      { a: 6, b: 7, t: 'sea', spd: 0.05 },  // Dubai-London
+      { a: 3, b: 5, t: 'sea', spd: 0.07 },  // Kochi-Singapore
+      { a: 0, b: 5, t: 'sea', spd: 0.06 },  // Mumbai-Singapore
+      { a: 2, b: 9, t: 'sea', spd: 0.055 },  // Chennai-HK
+      { a: 5, b: 8, t: 'sea', spd: 0.065 },  // Singapore-Shanghai
+      { a: 1, b: 5, t: 'sea', spd: 0.062 },  // Kolkata-Singapore
+      { a: 0, b: 9, t: 'sea', spd: 0.058 },  // Mumbai-HK
+      { a: 2, b: 6, t: 'sea', spd: 0.061 },  // Chennai-Dubai
+      { a: 4, b: 6, t: 'sea', spd: 0.068 },  // Delhi-Dubai (via ports)
+    ];
+
+    // Pseudo-random stars
+    const STARS = Array.from({ length: 180 }, (_, i) => ({
+      x: ((i * 6571) % 997) / 997,
+      y: ((i * 3947) % 883) / 883,
+      r: 0.3 + ((i * 2311) % 100) / 100 * 1.1,
+      a: 0.1 + ((i * 1733) % 100) / 100 * 0.5,
+    }));
+
+    function sph(lat, lng, R, rotDeg) {
+      const phi = (90 - lat) * Math.PI / 180;
+      const theta = (lng + rotDeg) * Math.PI / 180;
+      return {
+        x: R * Math.sin(phi) * Math.cos(theta),
+        y: -R * Math.cos(phi),
+        z: R * Math.sin(phi) * Math.sin(theta),
+      };
+    }
+
+    function drawGrid(R, rot, cx, cy) {
+      // Latitude rings — every 10°
+      for (let lat = -80; lat <= 80; lat += 10) {
+        const isMajor = lat % 30 === 0; // equator-ish lines slightly brighter
+        let pd = false;
+        ctx.beginPath();
+        for (let lng = -180; lng <= 183; lng += 2) {
+          const p = sph(lat, lng, R, rot);
+          if (p.z <= 2) { pd = false; continue; }
+          const x = cx + p.x, y = cy + p.y;
+          if (!pd) { ctx.moveTo(x, y); pd = true; } else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = isMajor ? 'rgba(6,182,212,0.22)' : 'rgba(6,182,212,0.13)';
+        ctx.lineWidth = isMajor ? 0.7 : 0.45;
+        ctx.stroke();
+      }
+      // Longitude meridians — every 10°
+      for (let lng = -180; lng < 180; lng += 10) {
+        const isMajor = lng % 30 === 0;
+        let pd = false;
+        ctx.beginPath();
+        for (let lat = -90; lat <= 90; lat += 2) {
+          const p = sph(lat, lng, R, rot);
+          if (p.z <= 2) { pd = false; continue; }
+          const x = cx + p.x, y = cy + p.y;
+          if (!pd) { ctx.moveTo(x, y); pd = true; } else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = isMajor ? 'rgba(6,182,212,0.18)' : 'rgba(6,182,212,0.09)';
+        ctx.lineWidth = isMajor ? 0.7 : 0.45;
+        ctx.stroke();
+      }
+    }
+
+    function drawRoute(n1, n2, R, rot, cx, cy, type, progress) {
+      const SEG = 100;
+      const pts = [];
+      for (let i = 0; i <= SEG; i++) {
+        const t = i / SEG;
+        const p = sph(n1.lat + (n2.lat - n1.lat) * t, n1.lng + (n2.lng - n1.lng) * t, R * 1.012, rot);
+        pts.push({ x: cx + p.x, y: cy + p.y, z: p.z, t });
+      }
+
+      const isLand = type === 'land';
+      const ci = isLand ? '249,115,22' : '6,182,212';
+
+      // Full path (dim)
+      ctx.beginPath();
+      let pd = false;
+      for (const p of pts) {
+        if (p.z <= 0) { pd = false; continue; }
+        if (!pd) { ctx.moveTo(p.x, p.y); pd = true; } else ctx.lineTo(p.x, p.y);
+      }
+      ctx.strokeStyle = `rgba(${ci},0.18)`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Bright animated progress
+      ctx.beginPath();
+      pd = false;
+      for (const p of pts) {
+        if (p.t > progress) break;
+        if (p.z <= 0) { pd = false; continue; }
+        if (!pd) { ctx.moveTo(p.x, p.y); pd = true; } else ctx.lineTo(p.x, p.y);
+      }
+      ctx.strokeStyle = `rgba(${ci},0.9)`;
+      ctx.lineWidth = isLand ? 1.5 : 2;
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = `rgb(${ci})`;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Moving dot at tip
+      const tip = pts[Math.min(Math.floor(progress * SEG), SEG)];
+      if (tip && tip.z > 0) {
+        ctx.beginPath();
+        ctx.arc(tip.x, tip.y, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = `rgb(${ci})`;
+        ctx.shadowBlur = 18;
+        ctx.shadowColor = `rgb(${ci})`;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function render() {
+      if (!ctx) return;
+      const t = (performance.now() - T0) / 1000;
+      const rot = t * 5.5; // 5.5°/s slow rotation
+      const cx = W * 0.61;
+      const cy = H * 0.5;
+      const R = Math.min(W * 0.37, H * 0.45);
+
+      ctx.clearRect(0, 0, W, H);
+
+      // Stars
+      STARS.forEach(s => {
+        ctx.beginPath();
+        ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(148,163,184,${s.a})`;
+        ctx.fill();
+      });
+
+      // Outer atmosphere halo
+      const halo = ctx.createRadialGradient(cx, cy, R * 0.85, cx, cy, R * 1.45);
+      halo.addColorStop(0, 'rgba(6,182,212,0.0)');
+      halo.addColorStop(0.3, 'rgba(6,182,212,0.12)');
+      halo.addColorStop(0.7, 'rgba(6,182,212,0.05)');
+      halo.addColorStop(1, 'rgba(2,6,23,0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(cx, cy, R * 1.45, 0, Math.PI * 2); ctx.fill();
+
+      // Globe fill (dark ocean)
+      const fill = ctx.createRadialGradient(cx - R * 0.3, cy - R * 0.3, 0, cx, cy, R);
+      fill.addColorStop(0, 'rgba(4,20,55,0.97)');
+      fill.addColorStop(0.55, 'rgba(2,10,30,0.98)');
+      fill.addColorStop(1, 'rgba(1,4,14,1)');
+      ctx.fillStyle = fill;
+      ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
+
+      // Grid lines
+      drawGrid(R, rot, cx, cy);
+
+      // Routes
+      ROUTES.forEach((route, i) => {
+        const n1 = NODES[route.a], n2 = NODES[route.b];
+        const progress = ((t * route.spd) + i * 0.31) % 1;
+        drawRoute(n1, n2, R, rot, cx, cy, route.t, progress);
+      });
+
+      // Nodes
+      NODES.forEach((node, i) => {
+        const p = sph(node.lat, node.lng, R * 1.02, rot);
+        if (p.z <= 0) return;
+        const nx = cx + p.x, ny = cy + p.y;
+        const pulse = (Math.sin(t * 2.2 + i * 1.1) + 1) / 2;
+
+        ctx.beginPath();
+        ctx.arc(nx, ny, 7 + pulse * 11, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${node.c},${0.18 * pulse})`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(nx, ny, node.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgb(${node.c})`;
+        ctx.shadowBlur = 14;
+        ctx.shadowColor = `rgb(${node.c})`;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      });
+
+      // Globe rim stroke
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      const rim = ctx.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
+      rim.addColorStop(0, 'rgba(6,182,212,0.7)');
+      rim.addColorStop(0.35, 'rgba(6,182,212,0.35)');
+      rim.addColorStop(0.7, 'rgba(6,182,212,0.1)');
+      rim.addColorStop(1, 'rgba(6,182,212,0.05)');
+      ctx.strokeStyle = rim;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Primary specular highlight (top-left, bright)
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * 0.94, -Math.PI * 0.92, -Math.PI * 0.15);
+      const spec1 = ctx.createLinearGradient(cx - R * 0.8, cy - R * 0.8, cx - R * 0.1, cy - R * 0.2);
+      spec1.addColorStop(0, 'rgba(180,245,255,0.85)');
+      spec1.addColorStop(0.5, 'rgba(150,230,245,0.55)');
+      spec1.addColorStop(1, 'rgba(6,182,212,0)');
+      ctx.strokeStyle = spec1;
+      ctx.lineWidth = 3.5;
+      ctx.stroke();
+      ctx.restore();
+
+      // Secondary shine (top area, softer glow)
+      const shine = ctx.createRadialGradient(cx - R * 0.45, cy - R * 0.6, R * 0.08, cx - R * 0.45, cy - R * 0.6, R * 0.35);
+      shine.addColorStop(0, 'rgba(200,248,255,0.25)');
+      shine.addColorStop(0.6, 'rgba(6,182,212,0.08)');
+      shine.addColorStop(1, 'rgba(6,182,212,0)');
+      ctx.fillStyle = shine;
+      ctx.beginPath();
+      ctx.arc(cx - R * 0.45, cy - R * 0.6, R * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Right-side subtle shine
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * 0.97, -Math.PI * 0.1, Math.PI * 0.15);
+      const spec2 = ctx.createLinearGradient(cx + R * 0.7, cy - R * 0.4, cx + R * 0.2, cy);
+      spec2.addColorStop(0, 'rgba(6,182,212,0.25)');
+      spec2.addColorStop(1, 'rgba(6,182,212,0)');
+      ctx.strokeStyle = spec2;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+
+      frame = requestAnimationFrame(render);
+    }
+
+    frame = requestAnimationFrame(render);
+    return () => { cancelAnimationFrame(frame); window.removeEventListener('resize', resize); };
+  }, []);
+
   return (
-    <p style={{ color: '#22d3b8', fontFamily: 'monospace', fontSize: '11px', fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: '20px' }}>
-      {String(number).padStart(2, '0')} — {label}
-    </p>
-  )
+    <canvas
+      ref={canvasRef}
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+    />
+  );
 }
 
-/* ─── animated counter ─── */
-function Counter({ target, suffix = '' }) {
-  const [count, setCount] = useState(0)
-  const [ref, visible] = useReveal()
-  useEffect(() => {
-    if (!visible) return
-    const end = parseFloat(target)
-    const isDecimal = String(target).includes('.')
-    const duration = 1400
-    const step = 16
-    const steps = duration / step
-    let current = 0
-    const inc = end / steps
-    const t = setInterval(() => {
-      current = Math.min(current + inc, end)
-      setCount(isDecimal ? current.toFixed(1) : Math.floor(current))
-      if (current >= end) clearInterval(t)
-    }, step)
-    return () => clearInterval(t)
-  }, [visible, target])
-  return <span ref={ref}>{count}{suffix}</span>
+// ── Glassmorphism KPI Card ────────────────────────────────────────────────
+function GlassCard({ style, children }) {
+  return (
+    <div style={{
+      background: 'rgba(2, 6, 23, 0.55)',
+      backdropFilter: 'blur(24px) saturate(160%)',
+      WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+      border: '1px solid rgba(255,255,255,0.1)',
+      borderRadius: '20px',
+      boxShadow: '0 8px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.07)',
+      ...style,
+    }}>
+      {children}
+    </div>
+  );
 }
 
-/* ─── blinking live dot ─── */
-const LiveBadge = ({ label = 'LIVE · monitoring 14 corridors across Bharat' }) => (
-  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(34,211,184,0.08)', border: '1px solid rgba(34,211,184,0.25)', borderRadius: '999px', padding: '5px 14px', marginBottom: '36px' }}>
-    <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#22d3b8', display: 'inline-block', animation: 'blink 1.4s ease-in-out infinite' }} />
-    <span style={{ color: '#22d3b8', fontSize: '12px', fontWeight: 500, letterSpacing: '0.03em' }}>{label}</span>
-  </div>
-)
-
+// ── Main Landing Page ─────────────────────────────────────────────────────
 export default function Landing() {
-  const navigate = useNavigate()
-  const [heroRef, heroVisible] = useReveal()
-  const [problemRef, problemVisible] = useReveal()
-  const [howRef, howVisible] = useReveal()
-  const [stackRef, stackVisible] = useReveal()
-  const [demoRef, demoVisible] = useReveal()
+  const navigate = useNavigate();
+  const [probRef, probVis] = useReveal();
+  const [howRef, howVis] = useReveal();
+  const [featRef, featVis] = useReveal();
 
   return (
-    <div style={{ background: '#0a0d12', color: '#e8eaed', fontFamily: "'DM Sans', sans-serif", minHeight: '100vh', overflowX: 'hidden' }}>
+    <div style={{ background: '#020617', color: '#e2e8f0', fontFamily: "'Manrope', sans-serif", minHeight: '100vh', overflowX: 'hidden' }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display:ital@0;1&display=swap');
-        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
-        @keyframes fadeUp { from{opacity:0;transform:translateY(28px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes fadeIn { from{opacity:0} to{opacity:1} }
-        @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(34,211,184,0.4)} 50%{box-shadow:0 0 0 8px rgba(34,211,184,0)} }
-        .nav-link { color:#9ca3af; font-size:14px; font-weight:400; cursor:pointer; transition:color .2s; text-decoration:none; background:none; border:none; }
-        .nav-link:hover { color:#fff; }
-        .step-card { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:16px; padding:28px; transition:border-color .3s, background .3s; }
-        .step-card:hover { border-color:rgba(34,211,184,0.3); background:rgba(34,211,184,0.04); }
-        .feature-card { background:rgba(255,255,255,0.025); border:1px solid rgba(255,255,255,0.06); border-radius:14px; padding:28px 24px; transition:border-color .3s, transform .3s; position:relative; overflow:hidden; }
-        .feature-card:hover { border-color:rgba(34,211,184,0.25); transform:translateY(-3px); }
-        .feature-num { position:absolute; top:16px; right:20px; font-size:11px; font-weight:500; color:rgba(255,255,255,0.12); letter-spacing:0.08em; }
-        .stat-card { background:rgba(255,255,255,0.025); border:1px solid rgba(255,255,255,0.07); border-radius:14px; padding:32px 28px; }
-        .scroll-reveal { opacity:0; transform:translateY(24px); transition:opacity .65s ease, transform .65s ease; }
-        .scroll-reveal.visible { opacity:1; transform:none; }
-        .cta-primary { background:#22d3b8; color:#0a0d12; border:none; padding:13px 26px; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:8px; transition:background .2s, transform .15s; font-family:inherit; }
-        .cta-primary:hover { background:#1bbca4; transform:translateY(-1px); }
-        .cta-secondary { background:transparent; color:#e8eaed; border:1px solid rgba(255,255,255,0.18); padding:13px 26px; border-radius:8px; font-size:15px; font-weight:500; cursor:pointer; display:inline-flex; align-items:center; gap:8px; transition:border-color .2s, background .2s; font-family:inherit; }
-        .cta-secondary:hover { border-color:rgba(255,255,255,0.4); background:rgba(255,255,255,0.04); }
-        .connector { position:absolute; top:42px; left:calc(100% + 0px); width:calc(100% - 0px); height:1px; background:linear-gradient(90deg,rgba(34,211,184,0.4),rgba(34,211,184,0.1)); }
-        * { box-sizing:border-box; margin:0; padding:0; }
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800;900&display=swap');
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        @keyframes fadeUp   { from{opacity:0;transform:translateY(26px)} to{opacity:1;transform:none} }
+        @keyframes blink    { 0%,100%{opacity:1} 50%{opacity:0.25} }
+        @keyframes pulse-ring { 0%,100%{transform:scale(1);opacity:0.5} 50%{transform:scale(1.4);opacity:0} }
+        .sr { opacity:0; transform:translateY(20px); transition:opacity .6s ease, transform .6s ease; }
+        .sr.in { opacity:1; transform:none; }
+        .glass-btn {
+          background: rgba(6,182,212,0.12);
+          border: 1px solid rgba(6,182,212,0.35);
+          color: #06b6d4;
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border-radius: 12px;
+          font-family: inherit;
+          font-weight: 700;
+          font-size: 13px;
+          letter-spacing: 0.02em;
+          cursor: pointer;
+          padding: 11px 24px;
+          transition: background .2s, border-color .2s, box-shadow .2s;
+        }
+        .glass-btn:hover {
+          background: rgba(6,182,212,0.22);
+          border-color: rgba(6,182,212,0.6);
+          box-shadow: 0 0 20px rgba(6,182,212,0.2);
+        }
+        .glass-btn-ghost {
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.15);
+          color: #e2e8f0;
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border-radius: 12px;
+          font-family: inherit;
+          font-weight: 600;
+          font-size: 13px;
+          cursor: pointer;
+          padding: 11px 24px;
+          transition: background .2s, border-color .2s;
+        }
+        .glass-btn-ghost:hover {
+          background: rgba(255,255,255,0.08);
+          border-color: rgba(255,255,255,0.3);
+        }
+        .cta-solid {
+          background: linear-gradient(135deg, #06b6d4 0%, #0284c7 100%);
+          color: #fff;
+          border: none;
+          border-radius: 12px;
+          font-family: inherit;
+          font-weight: 800;
+          font-size: 14px;
+          letter-spacing: 0.01em;
+          cursor: pointer;
+          padding: 14px 28px;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          box-shadow: 0 0 30px rgba(6,182,212,0.3), 0 4px 16px rgba(0,0,0,0.4);
+          transition: box-shadow .2s, transform .15s;
+        }
+        .cta-solid:hover {
+          box-shadow: 0 0 45px rgba(6,182,212,0.5), 0 4px 20px rgba(0,0,0,0.5);
+          transform: translateY(-1px);
+        }
+        .step-card {
+          background: rgba(255,255,255,0.025);
+          border: 1px solid rgba(255,255,255,0.07);
+          border-radius: 20px;
+          padding: 28px;
+          transition: border-color .3s, transform .3s, background .3s;
+        }
+        .step-card:hover { border-color: rgba(6,182,212,0.3); background: rgba(6,182,212,0.04); transform: translateY(-3px); }
+        .feat-card {
+          background: rgba(255,255,255,0.02);
+          border: 1px solid rgba(255,255,255,0.06);
+          border-radius: 18px;
+          padding: 28px 24px;
+          position: relative;
+          overflow: hidden;
+          transition: border-color .3s, transform .3s;
+        }
+        .feat-card::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: radial-gradient(circle at 80% 0, rgba(6,182,212,0.06) 0%, transparent 60%);
+          opacity: 0;
+          transition: opacity .3s;
+        }
+        .feat-card:hover { border-color: rgba(6,182,212,0.25); transform: translateY(-3px); }
+        .feat-card:hover::before { opacity: 1; }
       `}</style>
 
-      {/* ── NAVBAR ── */}
-      <nav style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 48px', height: '68px', background: 'rgba(10,13,18,0.9)', backdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ width: '30px', height: '30px', background: 'linear-gradient(135deg,#22d3b8,#0ea5e9)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M3 12h18M3 6l9-3 9 3M3 18l9 3 9-3" /></svg>
-          </div>
-          <span style={{ fontWeight: 600, fontSize: '16px', letterSpacing: '-0.01em' }}>MargDarshan<span style={{ color: '#22d3b8' }}>·</span>AI</span>
+      {/* ── NAVBAR ────────────────────────────────────── */}
+      <nav style={{
+        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
+        background: 'rgba(2,6,23,0.75)',
+        backdropFilter: 'blur(20px) saturate(160%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(160%)',
+        borderBottom: '1px solid rgba(255,255,255,0.07)',
+        padding: '0 52px', height: '64px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '48px' }}>
+          <img
+            src="/logo.svg"
+            alt="MargDarshan"
+            style={{ height: '56px', objectFit: 'contain', width: 'auto', filter: 'drop-shadow(0 0 12px rgba(6,182,212,0.5))', transition: 'filter 0.3s ease' }}
+            onError={(e) => { e.target.style.display = 'none'; }}
+          />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
-          {['Problem', 'How it works', 'Features', 'Demo'].map(l => (
-            <button key={l} className="nav-link" onClick={() => document.getElementById(l.toLowerCase().replace(/ /g, '-'))?.scrollIntoView({ behavior: 'smooth' })}>{l}</button>
+
+        <div style={{ display: 'flex', gap: '6px' }}>
+          {['Problem', 'How it works', 'Features'].map(l => (
+            <button key={l}
+              onClick={() => document.getElementById(l.toLowerCase().replace(/ /g, ''))?.scrollIntoView({ behavior: 'smooth' })}
+              style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '13px', fontWeight: 500, cursor: 'pointer', padding: '6px 14px', borderRadius: '8px', fontFamily: 'inherit', transition: 'color .2s, background .2s' }}
+              onMouseEnter={e => { e.target.style.color = '#f1f5f9'; e.target.style.background = 'rgba(255,255,255,0.05)'; }}
+              onMouseLeave={e => { e.target.style.color = '#94a3b8'; e.target.style.background = 'none'; }}>
+              {l}
+            </button>
           ))}
         </div>
+
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          <button className="nav-link" onClick={() => navigate('/login')}>Login</button>
-          <button className="cta-primary" style={{ padding: '9px 20px', fontSize: '14px' }} onClick={() => navigate('/register')}>Get Started</button>
+          <button className="glass-btn-ghost" style={{ fontSize: '13px', padding: '9px 20px' }} onClick={() => navigate('/login')}>Login</button>
+          <button className="cta-solid" style={{ fontSize: '13px', padding: '9px 20px' }} onClick={() => navigate('/register')}>Get Started →</button>
         </div>
       </nav>
 
-      {/* ── HERO ── */}
-      <section style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '120px 80px 80px' }}>
-        <div ref={heroRef} style={{ maxWidth: '680px' }}>
-          <div style={{ animation: heroVisible ? 'fadeUp .6s ease forwards' : 'none', opacity: 0 }}>
-            <LiveBadge />
+      {/* ── HERO ──────────────────────────────────────── */}
+      <section style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden', display: 'flex', alignItems: 'center' }}>
+        {/* Globe canvas behind everything */}
+        <Globe />
+
+        {/* Gradient mask — left side for text legibility */}
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, #020617 32%, rgba(2,6,23,0.82) 50%, rgba(2,6,23,0.25) 68%, transparent 80%)', pointerEvents: 'none' }} />
+        {/* Bottom fade */}
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '20%', background: 'linear-gradient(to top, #020617, transparent)', pointerEvents: 'none' }} />
+
+        {/* Hero copy */}
+        <div style={{ position: 'relative', zIndex: 2, padding: '110px 80px 80px', maxWidth: '580px' }}>
+
+          {/* Live badge */}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '9px', background: 'rgba(6,182,212,0.07)', border: '1px solid rgba(6,182,212,0.22)', borderRadius: '999px', padding: '5px 16px', marginBottom: '40px', animation: 'fadeUp .5s ease forwards' }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#10b981', display: 'inline-block', animation: 'blink 1.6s ease-in-out infinite', boxShadow: '0 0 8px #10b981' }} />
+            <span style={{ color: '#67e8f9', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em' }}>LIVE · monitoring 14 corridors across Bharat</span>
           </div>
-          <h1 style={{ fontSize: 'clamp(52px, 7vw, 84px)', fontFamily: "'DM Serif Display', serif", fontWeight: 400, lineHeight: 1.05, letterSpacing: '-0.02em', animation: heroVisible ? 'fadeUp .7s .1s ease forwards' : 'none', opacity: 0 }}>
+
+          {/* Headline */}
+          <h1 style={{ fontSize: 'clamp(44px, 5.5vw, 76px)', fontWeight: 900, lineHeight: 1.04, letterSpacing: '-0.03em', animation: 'fadeUp .6s .08s ease both', color: '#f1f5f9' }}>
             Your supply chain<br />
             doesn't just move.<br />
-            <span style={{ color: '#22d3b8', fontStyle: 'italic' }}>It thinks.</span>
-            <span style={{ color: '#f59e0b' }}>·</span>
+            <span style={{ background: 'linear-gradient(135deg, #06b6d4 0%, #67e8f9 60%, #a5f3fc 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+              It thinks.
+            </span>
           </h1>
-          <p style={{ marginTop: '28px', fontSize: '17px', lineHeight: 1.7, color: '#9ca3af', maxWidth: '480px', animation: heroVisible ? 'fadeUp .7s .25s ease forwards' : 'none', opacity: 0 }}>
-            AI-powered disruption prediction and automatic rerouting for Indian logistics corridors. Landslides, protests, monsoon — we see them before your trucks do.
+
+          <p style={{ marginTop: '28px', fontSize: '16px', lineHeight: 1.75, color: '#64748b', maxWidth: '460px', animation: 'fadeUp .6s .2s ease both' }}>
+            AI-powered disruption prediction and autonomous rerouting for Indian logistics corridors. Landslides, protests, monsoon — we see them before your trucks do.
           </p>
-          <div style={{ display: 'flex', gap: '14px', marginTop: '40px', animation: heroVisible ? 'fadeUp .7s .38s ease forwards' : 'none', opacity: 0 }}>
-            <button className="cta-primary" onClick={() => navigate('/register')}>Start free trial →</button>
-            <button className="cta-secondary" onClick={() => document.getElementById('demo')?.scrollIntoView({ behavior: 'smooth' })}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" fillOpacity="0.2" stroke="currentColor" strokeWidth="1.5" fill="none" /><polygon points="10,8 16,12 10,16" /></svg>
-              Watch demo
+
+          {/* CTAs */}
+          <div style={{ display: 'flex', gap: '12px', marginTop: '44px', animation: 'fadeUp .6s .32s ease both', flexWrap: 'wrap' }}>
+            <button className="cta-solid" onClick={() => navigate('/register')}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+              Deploy Now
             </button>
+            <button className="glass-btn-ghost" onClick={() => navigate('/login')}>
+              View Live Map
+            </button>
+          </div>
+
+          {/* Stats strip */}
+          <div style={{ display: 'flex', gap: '44px', marginTop: '60px', paddingTop: '40px', borderTop: '1px solid rgba(255,255,255,0.06)', animation: 'fadeUp .6s .44s ease both' }}>
+            {[
+              { v: '3', s: 's', p: '< ', l: 'Alert latency' },
+              { v: '96.4', s: '%', p: '', l: 'Model precision' },
+              { v: '14', s: '×', p: '', l: 'Faster rerouting' },
+            ].map(({ v, s, p, l }) => (
+              <div key={l}>
+                <p style={{ fontSize: 'clamp(26px, 3vw, 38px)', fontWeight: 900, letterSpacing: '-0.03em', color: '#f1f5f9', lineHeight: 1 }}>
+                  <Counter target={v} suffix={s} prefix={p} />
+                </p>
+                <p style={{ fontSize: '11px', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#475569', marginTop: '6px', fontWeight: 600 }}>{l}</p>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Stats strip */}
-        <div style={{ display: 'flex', gap: '64px', marginTop: '80px', paddingTop: '48px', borderTop: '1px solid rgba(255,255,255,0.07)', animation: heroVisible ? 'fadeUp .7s .5s ease forwards' : 'none', opacity: 0 }}>
-          {[
-            { value: '3', suffix: 's', prefix: '< ', label: 'Alert latency' },
-            { value: '96.4', suffix: '%', prefix: '', label: 'Model precision' },
-            { value: '14', suffix: '×', prefix: '', label: 'Faster rerouting' },
-          ].map(({ value, suffix, prefix, label }) => (
-            <div key={label}>
-              <p style={{ fontSize: 'clamp(28px, 3.5vw, 40px)', fontWeight: 600, letterSpacing: '-0.02em', color: '#fff' }}>
-                {prefix}<Counter target={value} suffix={suffix} />
-              </p>
-              <p style={{ fontSize: '12px', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#6b7280', marginTop: '4px', fontWeight: 500 }}>{label}</p>
-            </div>
-          ))}
-        </div>
+        {/* ── Floating glassmorphism KPI cards ── */}
+        <GlassCard style={{ position: 'absolute', zIndex: 3, top: '18%', right: '13%', padding: '18px 22px', minWidth: '175px' }}>
+          <p style={{ color: '#475569', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '8px' }}>Active Corridors</p>
+          <p style={{ color: '#06b6d4', fontSize: '36px', fontWeight: 900, lineHeight: 1, letterSpacing: '-0.03em' }}>14</p>
+          <p style={{ color: '#334155', fontSize: '11px', marginTop: '6px', fontWeight: 500 }}>across Bharat network</p>
+          <div style={{ marginTop: '12px', display: 'flex', gap: '4px' }}>
+            {[80, 60, 90, 45, 75, 55, 85].map((h, i) => (
+              <div key={i} style={{ flex: 1, height: `${h * 0.28}px`, background: `rgba(6,182,212,${0.3 + h / 200})`, borderRadius: '2px', alignSelf: 'flex-end' }} />
+            ))}
+          </div>
+        </GlassCard>
+
+        <GlassCard style={{ position: 'absolute', zIndex: 3, top: '45%', right: '5%', padding: '18px 22px', minWidth: '165px', borderColor: 'rgba(249,115,22,0.25)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <p style={{ color: '#475569', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Risk Alert</p>
+            <span style={{ background: 'rgba(249,115,22,0.15)', color: '#f97316', fontSize: '9px', fontWeight: 800, padding: '2px 8px', borderRadius: '999px', border: '1px solid rgba(249,115,22,0.3)', letterSpacing: '0.06em' }}>LIVE</span>
+          </div>
+          <p style={{ color: '#f97316', fontSize: '34px', fontWeight: 900, lineHeight: 1, letterSpacing: '-0.03em' }}>87%</p>
+          <p style={{ color: '#334155', fontSize: '11px', marginTop: '6px', fontWeight: 500 }}>NH48 Lonavala segment</p>
+          <div style={{ marginTop: '10px', height: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '2px' }}>
+            <div style={{ width: '87%', height: '100%', background: 'linear-gradient(90deg,#f97316,#ef4444)', borderRadius: '2px', boxShadow: '0 0 8px rgba(249,115,22,0.5)' }} />
+          </div>
+        </GlassCard>
+
+        <GlassCard style={{ position: 'absolute', zIndex: 3, top: '70%', right: '18%', padding: '16px 20px', minWidth: '150px' }}>
+          <p style={{ color: '#475569', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '6px' }}>Ships Tracked</p>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
+            <p style={{ color: '#67e8f9', fontSize: '30px', fontWeight: 900, lineHeight: 1, letterSpacing: '-0.03em' }}>09</p>
+            <p style={{ color: '#10b981', fontSize: '11px', fontWeight: 700, marginBottom: '4px' }}>↑ +2</p>
+          </div>
+          <p style={{ color: '#334155', fontSize: '11px', marginTop: '4px', fontWeight: 500 }}>sea routes · live</p>
+        </GlassCard>
       </section>
 
-      {/* ── 01 THE PROBLEM ── */}
-      <section id="problem" style={{ padding: '100px 80px' }}>
-        <div ref={problemRef} className={`scroll-reveal${problemVisible ? ' visible' : ''}`}>
-          <SectionTag number={1} label="The problem" />
-          <h2 style={{ fontSize: 'clamp(36px,5vw,60px)', fontFamily: "'DM Serif Display',serif", fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.02em', marginBottom: '56px' }}>
+      {/* ── PROBLEM ──────────────────────────────────── */}
+      <section id="problem" style={{ padding: '110px 80px' }}>
+        <div ref={probRef} className={`sr${probVis ? ' in' : ''}`}>
+          <p style={{ color: '#06b6d4', fontFamily: 'monospace', fontSize: '11px', fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: '20px' }}>01 — The Problem</p>
+          <h2 style={{ fontSize: 'clamp(34px, 4.5vw, 56px)', fontWeight: 900, lineHeight: 1.07, letterSpacing: '-0.03em', marginBottom: '56px' }}>
             Reactive logistics<br />
-            <span style={{ color: '#6b7280' }}>is a broken machine.</span>
+            <span style={{ color: '#334155' }}>is a broken machine.</span>
           </h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '20px' }}>
             {[
               { icon: '₹', stat: '₹1.2L Cr', desc: 'lost annually to supply chain disruptions in India' },
-              { icon: '⏱', stat: '43%', desc: 'of delays are predictable with available data' },
+              { icon: '⏱', stat: '43%', desc: 'of delays are predictable with available realtime data' },
               { icon: '🌧', stat: '200+', desc: 'landslide events per monsoon in the Western Ghats alone' },
             ].map(({ icon, stat, desc }) => (
-              <div key={stat} className="stat-card">
-                <div style={{ fontSize: '22px', marginBottom: '16px', color: '#22d3b8' }}>{icon}</div>
-                <p style={{ fontSize: '36px', fontWeight: 700, letterSpacing: '-0.03em', color: '#fff', marginBottom: '10px' }}>{stat}</p>
-                <p style={{ fontSize: '14px', color: '#6b7280', lineHeight: 1.6 }}>{desc}</p>
+              <div key={stat} style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '20px', padding: '32px 28px' }}>
+                <div style={{ fontSize: '22px', marginBottom: '16px', color: '#06b6d4' }}>{icon}</div>
+                <p style={{ fontSize: '38px', fontWeight: 900, letterSpacing: '-0.04em', color: '#f1f5f9', marginBottom: '10px' }}>{stat}</p>
+                <p style={{ fontSize: '14px', color: '#475569', lineHeight: 1.65 }}>{desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── 02 HOW IT WORKS ── */}
-      <section id="how-it-works" style={{ padding: '100px 80px', background: 'rgba(255,255,255,0.015)' }}>
-        <div ref={howRef} className={`scroll-reveal${howVisible ? ' visible' : ''}`}>
-          <SectionTag number={2} label="How it works" />
-          <h2 style={{ fontSize: 'clamp(36px,5vw,60px)', fontFamily: "'DM Serif Display',serif", fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.02em', marginBottom: '64px' }}>
+      {/* ── HOW IT WORKS ────────────────────────────── */}
+      <section id="howitworks" style={{ padding: '110px 80px', background: 'rgba(255,255,255,0.012)' }}>
+        <div ref={howRef} className={`sr${howVis ? ' in' : ''}`}>
+          <p style={{ color: '#06b6d4', fontFamily: 'monospace', fontSize: '11px', fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: '20px' }}>02 — How it works</p>
+          <h2 style={{ fontSize: 'clamp(34px, 4.5vw, 56px)', fontWeight: 900, lineHeight: 1.07, letterSpacing: '-0.03em', marginBottom: '64px' }}>
             Four steps from<br />
-            <span style={{ color: '#22d3b8' }}>shipment</span> <span style={{ color: '#9ca3af' }}>to</span> <span style={{ color: '#22d3b8' }}>safety</span><span style={{ color: '#f59e0b' }}>.</span>
+            <span style={{ color: '#06b6d4' }}>shipment</span>{' '}
+            <span style={{ color: '#334155' }}>to safety</span>
+            <span style={{ color: '#f97316' }}>.</span>
           </h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '20px', position: 'relative' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '18px' }}>
             {[
-              { num: '1', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><rect x="1" y="3" width="15" height="13" rx="2" /><path d="M16 8l5 2v4h-5" /><circle cx="5.5" cy="18.5" r="2.5" /><circle cx="18.5" cy="18.5" r="2.5" /></svg>, title: 'Register your fleet', desc: 'Onboard trucks, drivers, and cargo in minutes.' },
-              { num: '2', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M3 6l9-3 9 3v7c0 5-9 9-9 9s-9-4-9-9V6z" /></svg>, title: 'Define your routes', desc: 'Origin to destination — we generate the corridor.' },
-              { num: '3', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><path d="M12 8v4l3 3" /></svg>, title: 'AI scores risk live', desc: 'Weather, terrain, unrest — fused every 5 seconds.' },
-              { num: '4', icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>, title: 'Reroute automatically', desc: 'Above 80% risk, the safer path takes over.' },
-            ].map(({ num, icon, title, desc }, i) => (
-              <div key={num} className="step-card" style={{ transitionDelay: `${i * 0.08}s` }}>
+              { num: '1', title: 'Register your fleet', desc: 'Onboard trucks, ships, and cargo in minutes.', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" strokeWidth="1.8" strokeLinecap="round"><rect x="1" y="3" width="15" height="13" rx="2" /><path d="M16 8l5 2v4h-5" /><circle cx="5.5" cy="18.5" r="2.5" /><circle cx="18.5" cy="18.5" r="2.5" /></svg> },
+              { num: '2', title: 'Define your routes', desc: 'Origin to destination — we generate the corridor.', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" strokeWidth="1.8" strokeLinecap="round"><path d="M3 6l9-3 9 3v7c0 5-9 9-9 9s-9-4-9-9V6z" /></svg> },
+              { num: '3', title: 'AI scores risk live', desc: 'Weather, terrain, unrest — fused every 5 seconds.', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><path d="M12 8v4l3 3" /></svg> },
+              { num: '4', title: 'Reroute automatically', desc: 'Above 80% risk, the safer path takes over instantly.', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" strokeWidth="1.8" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg> },
+            ].map(({ num, title, desc, icon }, i) => (
+              <div key={num} className="step-card" style={{ transitionDelay: `${i * 0.07}s` }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-                  <div style={{ width: '52px', height: '52px', background: 'rgba(34,211,184,0.08)', border: '1px solid rgba(34,211,184,0.2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ width: '50px', height: '50px', background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.2)', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {icon}
                   </div>
-                  <span style={{ width: '24px', height: '24px', background: '#f59e0b', color: '#0a0d12', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700 }}>{num}</span>
+                  <span style={{ width: '26px', height: '26px', background: '#f97316', color: '#020617', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 900 }}>{num}</span>
                 </div>
-                <p style={{ fontSize: '16px', fontWeight: 600, color: '#fff', marginBottom: '8px' }}>{title}</p>
-                <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.6 }}>{desc}</p>
+                <p style={{ fontSize: '15px', fontWeight: 700, color: '#f1f5f9', marginBottom: '8px' }}>{title}</p>
+                <p style={{ fontSize: '13px', color: '#475569', lineHeight: 1.65 }}>{desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── 03 THE STACK (Features) ── */}
-      <section id="features" style={{ padding: '100px 80px' }}>
-        <div ref={stackRef} className={`scroll-reveal${stackVisible ? ' visible' : ''}`}>
-          <SectionTag number={3} label="The stack" />
-          <h2 style={{ fontSize: 'clamp(36px,5vw,60px)', fontFamily: "'DM Serif Display',serif", fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.02em', marginBottom: '56px' }}>
+      {/* ── FEATURES / STACK ────────────────────────── */}
+      <section id="features" style={{ padding: '110px 80px' }}>
+        <div ref={featRef} className={`sr${featVis ? ' in' : ''}`}>
+          <p style={{ color: '#06b6d4', fontFamily: 'monospace', fontSize: '11px', fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: '20px' }}>03 — The Stack</p>
+          <h2 style={{ fontSize: 'clamp(34px, 4.5vw, 56px)', fontWeight: 900, lineHeight: 1.07, letterSpacing: '-0.03em', marginBottom: '56px' }}>
             Built like a<br />
-            <span style={{ color: '#6b7280' }}>command center.</span>
+            <span style={{ color: '#334155' }}>command center.</span>
           </h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '18px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '16px' }}>
             {[
-              { num: '01', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2z" /><path d="M12 8v4l3 3" /></svg>, title: 'Risk Intelligence', desc: 'XGBoost scores every lat/long 0–100% using a multi-modal feature stack.' },
-              { num: '02', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>, title: 'Live Rerouting', desc: 'Dijkstra-based path optimization kicks in the moment risk crosses 80%.' },
-              { num: '03', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M20 17.5c0 .8-.7 1.5-1.5 1.5h-13A1.5 1.5 0 014 17.5V6.5C4 5.7 4.7 5 5.5 5h13c.8 0 1.5.7 1.5 1.5v11z" /><path d="M8 12l2 2 4-4" /></svg>, title: 'Multi-Signal Fusion', desc: 'Weather + landslide history + unrest detection, fused into one score.' },
-              { num: '04', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>, title: 'Fleet Dashboard', desc: 'Every truck, every corridor, every risk — one command center.' },
-              { num: '05', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" /></svg>, title: 'Instant Alerts', desc: 'Email, SMS, and in-app pings the moment a truck nears danger.' },
-              { num: '06', icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22d3b8" strokeWidth="1.8" strokeLinecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" /></svg>, title: 'AI Co-Pilot', desc: 'Ask anything — "which shipments are at risk tonight?" — in plain English.' },
-            ].map(({ num, icon, title, desc }) => (
-              <div key={num} className="feature-card">
-                <span className="feature-num">{num}</span>
-                <div style={{ marginBottom: '14px' }}>{icon}</div>
-                <p style={{ fontSize: '15px', fontWeight: 600, color: '#fff', marginBottom: '8px' }}>{title}</p>
-                <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.65 }}>{desc}</p>
+              { n: '01', t: 'Risk Intelligence', d: 'XGBoost scores every lat/long 0–100% using a multi-modal feature stack.' },
+              { n: '02', t: 'Live Rerouting', d: 'Dijkstra-based path optimization kicks in the moment risk crosses 80%.' },
+              { n: '03', t: 'Multi-Signal Fusion', d: 'Weather + landslide + unrest data fused into a single risk score.' },
+              { n: '04', t: 'Sea-Route Optimizer', d: 'Open-Meteo Marine API selects lowest wave/swell path automatically.' },
+              { n: '05', t: 'Instant Alerts', d: 'Email, SMS, and in-app pings the moment a shipment nears danger.' },
+              { n: '06', t: 'AI Co-Pilot', d: 'Ask anything in plain language — "which ships are at risk tonight?"' },
+            ].map(({ n, t, d }) => (
+              <div key={n} className="feat-card">
+                <span style={{ position: 'absolute', top: '18px', right: '20px', fontSize: '11px', color: 'rgba(255,255,255,0.1)', fontWeight: 600, letterSpacing: '0.06em' }}>{n}</span>
+                <div style={{ width: '40px', height: '40px', background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.15)', borderRadius: '10px', marginBottom: '16px' }} />
+                <p style={{ fontSize: '15px', fontWeight: 700, color: '#f1f5f9', marginBottom: '8px' }}>{t}</p>
+                <p style={{ fontSize: '13px', color: '#475569', lineHeight: 1.65 }}>{d}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── 04 DEMO ── */}
-      <section id="demo" style={{ padding: '100px 80px', background: 'rgba(255,255,255,0.015)' }}>
-        <div ref={demoRef} className={`scroll-reveal${demoVisible ? ' visible' : ''}`}>
-          <SectionTag number={4} label="See it live" />
-          <h2 style={{ fontSize: 'clamp(36px,5vw,60px)', fontFamily: "'DM Serif Display',serif", fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.02em', marginBottom: '16px' }}>
-            Lonavala Ghats, <span style={{ color: '#f59e0b' }}>July</span><br />
-            <span style={{ color: '#f59e0b' }}>2024.</span>
-            <br />
-            <span style={{ color: '#6b7280' }}>Three trucks rerouted</span><br />
-            <span style={{ color: '#6b7280' }}>in 4 seconds.</span>
-          </h2>
-
-          {/* Mock dashboard preview */}
-          <div style={{ marginTop: '48px', background: '#0f1318', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '18px', overflow: 'hidden' }}>
-            {/* Chrome bar */}
-            <div style={{ background: '#161b22', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                {['#ef4444', '#f59e0b', '#22c55e'].map(c => <div key={c} style={{ width: '10px', height: '10px', borderRadius: '50%', background: c }} />)}
-              </div>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '7px' }}>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22d3b8', display: 'inline-block', animation: 'blink 1.4s infinite' }} />
-                <span style={{ color: '#22d3b8', fontSize: '11px', letterSpacing: '0.1em', fontWeight: 600 }}>LIVE · NH48 CORRIDOR</span>
-              </div>
-            </div>
-            {/* Fake dashboard body */}
-            <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr 220px', height: '340px' }}>
-              {/* Sidebar */}
-              <div style={{ borderRight: '1px solid rgba(255,255,255,0.06)', padding: '20px 16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>
-                  <div style={{ width: '24px', height: '24px', background: 'linear-gradient(135deg,#22d3b8,#0ea5e9)', borderRadius: '6px' }} />
-                  <span style={{ fontSize: '13px', fontWeight: 600 }}>Dashook</span>
-                </div>
-                {['Overview', 'Live Route', 'Settings', 'Danger'].map((l, i) => (
-                  <div key={l} style={{ padding: '8px 10px', borderRadius: '6px', marginBottom: '4px', background: i === 1 ? 'rgba(34,211,184,0.1)' : 'transparent', color: i === 1 ? '#22d3b8' : '#6b7280', fontSize: '12px', fontWeight: i === 1 ? 600 : 400 }}>{l}</div>
-                ))}
-              </div>
-              {/* Map area */}
-              <div style={{ position: 'relative', overflow: 'hidden', background: '#0d1117' }}>
-                {/* Fake India SVG map silhouette */}
-                <svg width="100%" height="100%" viewBox="0 0 400 340" preserveAspectRatio="xMidYMid meet">
-                  <defs>
-                    <radialGradient id="glow1" cx="50%" cy="50%" r="50%">
-                      <stop offset="0%" stopColor="#ef4444" stopOpacity="0.6" />
-                      <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
-                    </radialGradient>
-                    <radialGradient id="glow2" cx="50%" cy="50%" r="50%">
-                      <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.4" />
-                      <stop offset="100%" stopColor="#f59e0b" stopOpacity="0" />
-                    </radialGradient>
-                  </defs>
-                  {/* simplified India shape */}
-                  <path d="M160,40 L220,35 L270,50 L300,80 L310,120 L290,160 L300,200 L270,250 L240,280 L200,310 L170,280 L150,240 L130,200 L110,160 L120,120 L130,80 Z" fill="rgba(34,211,184,0.04)" stroke="rgba(34,211,184,0.15)" strokeWidth="1" />
-                  {/* Route line Mumbai-Pune */}
-                  <path d="M155,220 L170,210 L180,200 L190,190 L195,180" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeDasharray="6 3" opacity="0.9" />
-                  {/* Glow blobs (risk zones) */}
-                  <ellipse cx="185" cy="195" rx="28" ry="20" fill="url(#glow1)" />
-                  <ellipse cx="165" cy="218" rx="18" ry="14" fill="url(#glow2)" />
-                  {/* Truck dots */}
-                  <circle cx="155" cy="222" r="5" fill="#22d3b8" opacity="0.9">
-                    <animate attributeName="r" values="5;8;5" dur="1.8s" repeatCount="indefinite" />
-                    <animate attributeName="opacity" values="0.9;0.4;0.9" dur="1.8s" repeatCount="indefinite" />
-                  </circle>
-                  <circle cx="175" cy="207" r="5" fill="#ef4444" opacity="0.9">
-                    <animate attributeName="r" values="5;8;5" dur="2.1s" repeatCount="indefinite" />
-                    <animate attributeName="opacity" values="0.9;0.4;0.9" dur="2.1s" repeatCount="indefinite" />
-                  </circle>
-                  <circle cx="192" cy="183" r="4" fill="#22c55e" opacity="0.9" />
-                  {/* Labels */}
-                  <text x="135" y="232" fill="#6b7280" fontSize="8" fontFamily="monospace">Mumbai</text>
-                  <text x="192" y="178" fill="#6b7280" fontSize="8" fontFamily="monospace">Pune</text>
-                  <text x="165" y="196" fill="#ef4444" fontSize="8" fontFamily="monospace">RISK 87%</text>
-                </svg>
-              </div>
-              {/* Right panel */}
-              <div style={{ borderLeft: '1px solid rgba(255,255,255,0.06)', padding: '20px 16px' }}>
-                <p style={{ fontSize: '11px', color: '#6b7280', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '14px' }}>The Status</p>
-                {[
-                  { label: 'MH-12-AB-1234', risk: 87, color: '#ef4444' },
-                  { label: 'MH-04-CD-5678', risk: 34, color: '#22d3b8' },
-                  { label: 'MH-09-EF-9012', risk: 15, color: '#22c55e' },
-                ].map(({ label, risk, color }) => (
-                  <div key={label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '10px', marginBottom: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                    <p style={{ fontSize: '10px', fontFamily: 'monospace', color: '#9ca3af', marginBottom: '6px' }}>{label}</p>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <div style={{ flex: 1, height: '4px', background: 'rgba(255,255,255,0.08)', borderRadius: '2px' }}>
-                        <div style={{ width: `${risk}%`, height: '100%', background: color, borderRadius: '2px' }} />
-                      </div>
-                      <span style={{ fontSize: '11px', fontWeight: 600, color }}>{risk}%</span>
-                    </div>
-                  </div>
-                ))}
-                {/* Donut chart placeholder */}
-                <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'center' }}>
-                  <svg width="80" height="80" viewBox="0 0 80 80">
-                    <circle cx="40" cy="40" r="30" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10" />
-                    <circle cx="40" cy="40" r="30" fill="none" stroke="#f59e0b" strokeWidth="10" strokeDasharray="113 75" strokeLinecap="round" transform="rotate(-90 40 40)" />
-                    <circle cx="40" cy="40" r="30" fill="none" stroke="#22d3b8" strokeWidth="10" strokeDasharray="50 138" strokeDashoffset="-113" strokeLinecap="round" transform="rotate(-90 40 40)" />
-                    <text x="40" y="45" textAnchor="middle" fill="white" fontSize="13" fontWeight="600">64%</text>
-                  </svg>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── FINAL CTA ── */}
-      <section style={{ padding: '120px 80px', textAlign: 'center' }}>
-        <p style={{ color: '#22d3b8', fontFamily: 'monospace', fontSize: '11px', letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: '24px' }}>Ready to ship smarter?</p>
-        <h2 style={{ fontSize: 'clamp(32px,4.5vw,52px)', fontFamily: "'DM Serif Display',serif", fontWeight: 400, lineHeight: 1.1, letterSpacing: '-0.02em', marginBottom: '32px' }}>
-          Join the fleets that don't<br />
-          <span style={{ color: '#6b7280' }}>react. They predict.</span>
+      {/* ── FINAL CTA ───────────────────────────────── */}
+      <section style={{ padding: '120px 80px', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 50% 50%, rgba(6,182,212,0.07) 0%, transparent 65%)', pointerEvents: 'none' }} />
+        <p style={{ color: '#06b6d4', fontFamily: 'monospace', fontSize: '11px', fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: '24px', position: 'relative' }}>
+          Ready to ship smarter?
+        </p>
+        <h2 style={{ fontSize: 'clamp(30px, 4vw, 52px)', fontWeight: 900, lineHeight: 1.07, letterSpacing: '-0.03em', marginBottom: '36px', position: 'relative' }}>
+          Join the fleets that don't react.<br />
+          <span style={{ color: '#334155' }}>They predict.</span>
         </h2>
-        <div style={{ display: 'flex', gap: '14px', justifyContent: 'center' }}>
-          <button className="cta-primary" onClick={() => navigate('/register')}>Start free trial →</button>
-          <button className="cta-secondary" onClick={() => navigate('/login')}>Login to dashboard</button>
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', position: 'relative' }}>
+          <button className="cta-solid" onClick={() => navigate('/register')}>Start free trial →</button>
+          <button className="glass-btn-ghost" onClick={() => navigate('/login')}>Login to dashboard</button>
         </div>
       </section>
 
-      {/* ── FOOTER ── */}
-      <footer style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '56px 80px 40px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '40px', marginBottom: '48px' }}>
+      {/* ── FOOTER ──────────────────────────────────── */}
+      <footer style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '52px 80px 36px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '48px', marginBottom: '48px' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-              <div style={{ width: '28px', height: '28px', background: 'linear-gradient(135deg,#22d3b8,#0ea5e9)', borderRadius: '7px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M3 12h18M3 6l9-3 9 3M3 18l9 3 9-3" /></svg>
-              </div>
-              <span style={{ fontWeight: 600, fontSize: '15px' }}>MargDarshan<span style={{ color: '#22d3b8' }}>·</span>AI</span>
-            </div>
-            <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.7, maxWidth: '220px' }}>The self-healing supply chain for Bharat. Predicting disruptions before they disrupt.</p>
-            <p style={{ fontSize: '12px', color: '#4b5563', marginTop: '16px' }}>Built for Bharat 🇮🇳</p>
+            <img
+              src="/logo.svg"
+              alt="MargDarshan"
+              style={{ height: '60px', objectFit: 'contain', marginBottom: '14px', width: 'auto', filter: 'drop-shadow(0 0 15px rgba(6,182,212,0.4))', transition: 'filter 0.3s ease' }}
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+            <p style={{ fontSize: '13px', color: '#475569', lineHeight: 1.7, maxWidth: '210px' }}>The self-healing supply chain for Bharat. Predicting disruptions before they disrupt.</p>
+            <p style={{ fontSize: '12px', color: '#1e293b', marginTop: '14px' }}>Built for Bharat 🇮🇳</p>
           </div>
           <div>
-            <p style={{ fontSize: '11px', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#4b5563', fontWeight: 600, marginBottom: '18px' }}>Product</p>
-            {['Features', 'How it works', 'Demo'].map(l => <p key={l} style={{ fontSize: '14px', color: '#6b7280', marginBottom: '10px', cursor: 'pointer' }} onMouseEnter={e => e.target.style.color = '#fff'} onMouseLeave={e => e.target.style.color = '#6b7280'}>{l}</p>)}
+            <p style={{ fontSize: '10px', letterSpacing: '0.12em', textTransform: 'uppercase', color: '#1e293b', fontWeight: 700, marginBottom: '18px' }}>Product</p>
+            {['Features', 'How it works', 'Live Demo'].map(l => (
+              <p key={l} style={{ fontSize: '14px', color: '#475569', marginBottom: '10px', cursor: 'pointer', transition: 'color .2s' }} onMouseEnter={e => e.target.style.color = '#f1f5f9'} onMouseLeave={e => e.target.style.color = '#475569'}>{l}</p>
+            ))}
           </div>
           <div>
-            <p style={{ fontSize: '11px', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#4b5563', fontWeight: 600, marginBottom: '18px' }}>Company</p>
-            {['About', 'Contact', 'Careers'].map(l => <p key={l} style={{ fontSize: '14px', color: '#6b7280', marginBottom: '10px', cursor: 'pointer' }} onMouseEnter={e => e.target.style.color = '#fff'} onMouseLeave={e => e.target.style.color = '#6b7280'}>{l}</p>)}
+            <p style={{ fontSize: '10px', letterSpacing: '0.12em', textTransform: 'uppercase', color: '#1e293b', fontWeight: 700, marginBottom: '18px' }}>Company</p>
+            {['About', 'Contact', 'Careers'].map(l => (
+              <p key={l} style={{ fontSize: '14px', color: '#475569', marginBottom: '10px', cursor: 'pointer', transition: 'color .2s' }} onMouseEnter={e => e.target.style.color = '#f1f5f9'} onMouseLeave={e => e.target.style.color = '#475569'}>{l}</p>
+            ))}
           </div>
         </div>
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <p style={{ fontSize: '12px', color: '#4b5563' }}>© 2026 MargDarshan-AI · All rights reserved</p>
-          <p style={{ fontSize: '11px', color: '#374151', fontFamily: 'monospace' }}>Hackathon prototype · v0.1</p>
+          <p style={{ fontSize: '12px', color: '#1e293b' }}>© 2026 MargDarshan-AI · All rights reserved</p>
+          <p style={{ fontSize: '11px', color: '#1e293b', fontFamily: 'monospace' }}>Hackathon prototype · v0.1</p>
         </div>
       </footer>
     </div>
-  )
+  );
 }

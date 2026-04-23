@@ -1,5 +1,6 @@
 import 'leaflet/dist/leaflet.css';
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
 import L from 'leaflet';
 import axios from 'axios';
 import { Radio, RefreshCw, AlertTriangle } from 'lucide-react';
@@ -142,6 +143,7 @@ function makeMarkerIcon(emoji, color) {
 }
 
 export default function LiveMap() {
+  const { shipmentId: preselectedId } = useParams();
   const containerRef = useRef(null);
   const mapRef       = useRef(null);
   const routeCache   = useRef({});
@@ -151,11 +153,12 @@ export default function LiveMap() {
   const [shipments, setShipments] = useState([]);
   const [positions, setPositions] = useState({});
   const [risks, setRisks]         = useState({});
-  const [reroutes, setReroutes]   = useState({});  // id → reroute waypoints
-  const [routeStartTimes, setRouteStartTimes] = useState({});  // id → when reroute started
+  const [reroutes, setReroutes]   = useState({});
+  const [routeStartTimes, setRouteStartTimes] = useState({});
   const [loading, setLoading]     = useState(true);
   const [selectedId, setSelectedId] = useState(null);
   const [rerouteLoading, setRerouteLoading] = useState(false);
+  const [routesVersion, setRoutesVersion] = useState(0); // bumped after route caching completes
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -172,7 +175,11 @@ export default function LiveMap() {
       .order('created_at', { ascending: false });
     const list = data || [];
     setShipments(list);
-    if (list.length > 0 && !selectedId) setSelectedId(list[0].id);
+    if (list.length > 0 && !selectedId) {
+      // If opened from My Shipments with a specific id, pre-select it
+      const target = preselectedId && list.find(s => s.id === preselectedId);
+      setSelectedId(target ? target.id : list[0].id);
+    }
     setLoading(false);
 
     await Promise.all(list.map(async s => {
@@ -182,7 +189,9 @@ export default function LiveMap() {
         : await fetchLandRoute(s.source, s.destination);
       routeCache.current[s.id] = wps;
     }));
-  }, [selectedId]);
+    // Routes are now in the ref — bump version so the position effect re-fires
+    setRoutesVersion(v => v + 1);
+  }, [selectedId, preselectedId]);
 
   const updatePositions = useCallback(async () => {
     const newPositions = {};
@@ -246,46 +255,46 @@ export default function LiveMap() {
       const isRerouted = !!reroutes[s.id];
 
       if (s.id === selectedId && currentWps && pos) {
-        // Draw full current route in light gray (remaining path)
+        const isWater  = s.type === 'water';
+        const doneColor = isWater ? '#00d9ff' : '#f97316';
+        const restColor = isWater ? '#0c4a6e' : '#431407';
+
+        // Draw full route in dark type-specific color (remaining path)
         if (!polyRefs.current[s.id]) {
-          const fullPoly = L.polyline(currentWps, { color: '#e5e7eb', weight: 3, opacity: 0.6 }).addTo(map);
+          const fullPoly = L.polyline(currentWps, { color: restColor, weight: 3, opacity: 0.7 }).addTo(map);
           polyRefs.current[s.id] = fullPoly;
         }
 
-        // Draw completed portion in bright cyan
-        if (!polyRefs.current[`${s.id}_done`]) {
-          const totalKm = currentWps.reduce((acc, _, i) =>
-            i === 0 ? acc : acc + haversineKm(currentWps[i-1][0], currentWps[i-1][1], currentWps[i][0], currentWps[i][1]), 0);
-          const targetKm = pos.coveredKm;
-          let covered = 0;
-          const donePts = [currentWps[0]];
-          for (let i = 1; i < currentWps.length; i++) {
-            const seg = haversineKm(currentWps[i-1][0], currentWps[i-1][1], currentWps[i][0], currentWps[i][1]);
-            if (covered + seg > targetKm) break;
-            covered += seg;
-            donePts.push(currentWps[i]);
+        // Build done waypoints
+        const targetKm = pos.coveredKm;
+        let covered = 0;
+        const donePts = [currentWps[0]];
+        for (let i = 1; i < currentWps.length; i++) {
+          const seg = haversineKm(currentWps[i-1][0], currentWps[i-1][1], currentWps[i][0], currentWps[i][1]);
+          if (covered + seg > targetKm) {
+            // Add interpolated point at exact progress position
+            const t = (targetKm - covered) / seg;
+            donePts.push([
+              currentWps[i-1][0] + (currentWps[i][0] - currentWps[i-1][0]) * t,
+              currentWps[i-1][1] + (currentWps[i][1] - currentWps[i-1][1]) * t,
+            ]);
+            break;
           }
-          const donePoly = L.polyline(donePts, { color: '#00d9ff', weight: 6, opacity: 1 }).addTo(map);
+          covered += seg;
+          donePts.push(currentWps[i]);
+        }
+
+        // Draw completed portion in bright color
+        if (!polyRefs.current[`${s.id}_done`]) {
+          const donePoly = L.polyline(donePts, { color: doneColor, weight: 5, opacity: 1 }).addTo(map);
           polyRefs.current[`${s.id}_done`] = donePoly;
         } else {
-          // Update completed portion as shipment moves
-          const totalKm = currentWps.reduce((acc, _, i) =>
-            i === 0 ? acc : acc + haversineKm(currentWps[i-1][0], currentWps[i-1][1], currentWps[i][0], currentWps[i][1]), 0);
-          const targetKm = pos.coveredKm;
-          let covered = 0;
-          const donePts = [currentWps[0]];
-          for (let i = 1; i < currentWps.length; i++) {
-            const seg = haversineKm(currentWps[i-1][0], currentWps[i-1][1], currentWps[i][0], currentWps[i][1]);
-            if (covered + seg > targetKm) break;
-            covered += seg;
-            donePts.push(currentWps[i]);
-          }
           polyRefs.current[`${s.id}_done`].setLatLngs(donePts);
         }
 
         // Show original route in faded white if rerouted (for reference)
         if (isRerouted && originalWps && !polyRefs.current[`${s.id}_original`]) {
-          const origPoly = L.polyline(originalWps, { color: '#ffffff', weight: 2, opacity: 0.2, dashArray: '5,5' }).addTo(map);
+          const origPoly = L.polyline(originalWps, { color: '#94a3b8', weight: 2, opacity: 0.25, dashArray: '5,5' }).addTo(map);
           polyRefs.current[`${s.id}_original`] = origPoly;
         }
       } else {
@@ -455,7 +464,7 @@ export default function LiveMap() {
     updatePositions();
     const t = setInterval(updatePositions, 30_000);
     return () => clearInterval(t);
-  }, [shipments, updatePositions]);
+  }, [shipments, updatePositions, routesVersion]);
 
   const activeCount    = shipments.length;
   const criticalCount  = Object.values(risks).filter(r => r.score >= 80).length;
@@ -483,22 +492,13 @@ export default function LiveMap() {
 
       {criticalCount > 0 && (
         <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 border border-red-500/20 p-3 rounded-xl">
-          <AlertTriangle size={16} /> {criticalCount} shipment{criticalCount>1?'s':''} at CRITICAL risk — check Live Map immediately.
+          <AlertTriangle size={16} /> {criticalCount} shipment{criticalCount>1?'s':''} at CRITICAL risk. Check Live Map immediately.
         </div>
       )}
 
-      {selectedShip && selectedRisk && selectedRisk.score >= 60 && (
-        <div className="bg-red-500/20 border border-red-500/40 rounded-xl p-4">
-          <div className="flex items-center gap-3">
-            <AlertTriangle size={20} className="text-red-400" />
-            <div>
-              <p className="text-red-300 font-black text-sm uppercase">Risk Alert: {getCriticalityReason(selectedRisk)}</p>
-              <p className="text-red-200 text-xs mt-1">Risk Score: {selectedRisk.score.toFixed(0)}% — {riskLabel(selectedRisk.score)}</p>
-            </div>
-            {reroutes[selectedId] && (
-              <span className="ml-auto bg-emerald-500/30 text-emerald-300 px-3 py-1 rounded-lg text-xs font-black">✓ Rerouting</span>
-            )}
-          </div>
+      {selectedShip && selectedRisk && selectedRisk.score >= 60 && reroutes[selectedId] && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-2 flex items-center gap-2">
+          <span className="text-emerald-400 text-xs font-black uppercase tracking-widest">Rerouting active</span>
         </div>
       )}
 

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Navigation, RefreshCw, Truck, Ship, MapPin, Calendar } from 'lucide-react';
+import { Navigation, RefreshCw, Truck, Ship, MapPin, Calendar, Download } from 'lucide-react';
 import { supabase } from '../utils/supabase';
+import { generateShipmentReportPDF } from '../utils/generateShipmentReport';
 
 const STATUS_THEME = {
   in_transit: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
@@ -130,14 +131,21 @@ export default function MyShipments() {
               <div className="mt-8">
                 {s.status === 'in_transit' ? (
                   <Link
-                    to={`/tracker/${s.id}`}
+                    to={`/dashboard/map/${s.id}`}
                     className="block w-full bg-cyan-500 text-black hover:bg-cyan-600 hover:text-white text-center py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] transition-all duration-300 shadow-xl active:scale-[0.98]"
                   >
-                    Track Activity
+                    Track
                   </Link>
+                ) : s.status === 'fulfilled' ? (
+                  <button
+                    onClick={() => generateShipmentReportPDF(s)}
+                    className="w-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25 hover:border-emerald-500/60 text-center py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-2"
+                  >
+                    <Download size={12} /> Download Report
+                  </button>
                 ) : (
                   <div className="w-full bg-white/[0.02] text-slate-700 text-center py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border border-white/5">
-                    Entry Archived
+                    {s.status === 'cancelled' ? 'Cancelled' : 'Archived'}
                   </div>
                 )}
               </div>

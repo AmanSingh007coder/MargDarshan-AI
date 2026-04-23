@@ -7,7 +7,7 @@ import { generateDisplayId } from '../utils/idGenerator';
 
 const CITY_NORMALIZE = {
   'Bangalore': 'Bengaluru', 'Mangalore': 'Mangaluru',
-  'Calicut': 'Kozhikode',  'Cochin': 'Kochi', 'Panaji': 'Goa',
+  'Calicut': 'Kozhikode', 'Cochin': 'Kochi', 'Panaji': 'Goa',
 };
 
 const VEHICLE_TYPES = {
@@ -132,7 +132,7 @@ function ShipmentCard3D({ type, onClick, imageUrl, icon, title, subtitle, descri
             : '0 8px 32px rgba(56,189,248,0.2)',
           transition: 'transform 0.3s ease',
         }}
-        className="icon-float"
+          className="icon-float"
         >
           {icon}
         </div>
@@ -199,12 +199,12 @@ function ShipmentCard3D({ type, onClick, imageUrl, icon, title, subtitle, descri
 /* ── Geo Search Input ──────────────────────────────────────────────────────── */
 
 function GeoSearchInput({ label, value, onSelect }) {
-  const [query, setQuery]     = useState(value?.name || '');
+  const [query, setQuery] = useState(value?.name || '');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [open, setOpen]       = useState(false);
-  const debounceRef           = useRef(null);
-  const wrapperRef            = useRef(null);
+  const [open, setOpen] = useState(false);
+  const debounceRef = useRef(null);
+  const wrapperRef = useRef(null);
 
   useEffect(() => {
     const handler = (e) => {
@@ -228,8 +228,8 @@ function GeoSearchInput({ label, value, onSelect }) {
         const features = (data || []).map(f => ({
           name: f.address?.city || f.address?.town || f.address?.state_district || f.display_name.split(',')[0].trim(),
           full: f.display_name,
-          lat:  parseFloat(f.lat),
-          lng:  parseFloat(f.lon),
+          lat: parseFloat(f.lat),
+          lng: parseFloat(f.lon),
         }));
         setResults(features);
         setOpen(features.length > 0);
@@ -365,7 +365,7 @@ export default function NewShipment() {
             origin_lat: source.lat, origin_lng: source.lng,
             destination_lat: destination.lat, destination_lng: destination.lng,
             vessel_type: vehicleType, quantity_tons: 1,
-          }).then(res => setEstimates(res.data)).catch(() => {});
+          }).then(res => setEstimates(res.data)).catch(() => { });
         })
         .finally(() => setEstimating(false));
     }
@@ -406,8 +406,8 @@ export default function NewShipment() {
           current_step: 0,
           ...(estimates && type === 'water' ? {
             route_meta: {
-              distance_km:        estimates.distance_km,
-              eta_hours:          estimates.eta_hours,
+              distance_km: estimates.distance_km,
+              eta_hours: estimates.eta_hours,
               fuel_required_tons: estimates.fuel_required_tons,
             }
           } : {}),
@@ -464,7 +464,7 @@ export default function NewShipment() {
             description="5 high-risk corridors across India's mountain passes and monsoon zones."
             stats={[
               { label: 'Corridors', value: '5' },
-              { label: 'Risk', value: 'HIGH' },
+
               { label: 'AI Reroute', value: '4s' },
             ]}
             badgeColor="bg-cyan-500/10 border-cyan-500/20 text-cyan-400"
@@ -481,7 +481,7 @@ export default function NewShipment() {
             description="Indian Ocean & Arabian Sea routes with live weather and wave alerts."
             stats={[
               { label: 'Routes', value: '12' },
-              { label: 'Coverage', value: 'IOC' },
+
               { label: 'Wave Data', value: 'LIVE' },
             ]}
             badgeColor="bg-sky-500/10 border-sky-500/20 text-sky-400"
