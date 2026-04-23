@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { MessageCircle, X, Send, Loader2 } from 'lucide-react';
-import { sendMessage } from '../utils/gemini';
+import { sendMessage } from '../utils/groq';
 import { supabase } from '../utils/supabase';
 
 export default function ChatWidget() {

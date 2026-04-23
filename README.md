@@ -69,9 +69,14 @@ MargDarshan fuses **6+ real-time data streams** into a unified **XGBoost risk mo
 - **Shipment Tracking** - Live position interpolation with ETA calculation
 - **Multi-Modal Support** - Land routes (OSRM), sea routes (custom smart algorithm)
 
+### AI Co-pilot
+- **Margदर्शन AI Chatbot** - Floating chat widget on all dashboard pages powered by Groq (llama-3.1-8b-instant)
+- **Live Data Context** - Chatbot reads real shipment data from Supabase: counts, statuses, routes, ETA, distance covered/remaining
+- **Logistics-Aware** - Understands risk levels, corridors, rerouting, and supply chain terminology
+
 ### Security
 - **JWT Authentication** - Supabase Auth with secure session management
-- **MFA Support** - TOTP-based multi-factor authentication
+- **MFA Support** - TOTP-based multi-factor authentication (Google Authenticator / Authy)
 - **Data Encryption** - Secure credential storage and API key management
 
 ---
@@ -100,6 +105,7 @@ MargDarshan fuses **6+ real-time data streams** into a unified **XGBoost risk mo
 | **State** | Redux Thunk |
 | **HTTP Client** | axios |
 | **Router** | React Router v6 |
+| **AI Chatbot** | Groq API — llama-3.1-8b-instant (free tier) |
 
 ### Deployment
 - **Containerization** - Docker (ready for AWS/GCP)
@@ -129,8 +135,9 @@ Disk: 5GB free space
 ### External Services (Free Tier)
 ```
 ✓ Supabase (PostgreSQL + Auth) - https://supabase.com
-✓ Open-Metoe API (Weather/Marine) - https://open-meteo.com
+✓ Open-Meteo API (Weather/Marine) - https://open-meteo.com
 ✓ OSRM (Routing) - https://router.project-osrm.org
+✓ Groq API (AI Chatbot) - https://console.groq.com
 ```
 
 ---
@@ -234,15 +241,16 @@ yarn install
 ```bash
 # Create .env in Frontend directory
 cat > .env << EOF
-# API Configuration
-VITE_API_URL=http://localhost:8888
-
 # Supabase Configuration
 VITE_SUPABASE_URL=your_supabase_project_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 
-# Environment
-VITE_ENV=development
+# API URLs
+VITE_API_URL=http://localhost:3000
+VITE_ML_URL=http://localhost:8888
+
+# Groq AI Chatbot (free tier — get key at https://console.groq.com)
+VITE_GROQ_API_KEY=your_groq_api_key_here
 EOF
 ```
 
@@ -477,14 +485,15 @@ MargDarshan-AI/
 |   |   |   |-- MfaEnroll.jsx         # MFA enrollment
 |   |   |   |-- TotpChallenge.jsx     # TOTP verification
 |   |   |-- components/
+|   |   |   |-- ChatWidget.jsx        # Floating AI chatbot (Groq-powered)
 |   |   |   |-- Globe.jsx             # 3D rotating globe component
 |   |   |   |-- Counter.jsx           # Animated counter component
 |   |   |   |-- CustomMap.jsx         # Map wrapper component
 |   |   |-- utils/
 |   |   |   |-- supabase.js           # Supabase client setup
+|   |   |   |-- groq.js               # Groq AI API client (llama-3.1-8b-instant)
 |   |   |   |-- generateShipmentReport.js  # PDF report generation
 |   |   |   |-- idGenerator.js        # Display ID generator
-|   |   |   |-- constants.js          # App constants
 |   |   |-- App.jsx                   # Main app router
 |   |   |-- App.css                   # Global styles
 |   |   |-- index.css                 # Tailwind styles
