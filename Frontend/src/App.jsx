@@ -11,6 +11,7 @@ import Tracker from './pages/Tracker';
 import MfaEnroll from './pages/MfaEnroll';
 import TotpChallenge from './pages/TotpChallenge';
 import SecurityDashboard from './pages/SecurityDashboard';
+import ChatWidget from './components/ChatWidget';
 import {
   LayoutDashboard, Map as MapIcon,
   Truck, PlusSquare, Zap, LogOut, Shield,
@@ -56,6 +57,7 @@ function DashboardLayout({ children }) {
       <main className="flex-1 min-h-screen">
         <section className="p-8">{children}</section>
       </main>
+      <ChatWidget />
     </div>
   );
 }

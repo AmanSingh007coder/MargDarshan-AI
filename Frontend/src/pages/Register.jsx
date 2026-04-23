@@ -21,9 +21,10 @@ export default function Register() {
           const { data: { user } } = await supabase.auth.getUser();
 
           if (user) {
-            const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+            const { data: { factors } } = await supabase.auth.mfa.listFactors();
+            const verifiedMfa = factors?.totp?.find(f => f.status === 'verified');
 
-            if (aalData?.nextLevel === 'aal2' && aalData?.currentLevel !== 'aal2') {
+            if (!verifiedMfa) {
               navigate('/mfa/enroll');
             } else {
               navigate('/dashboard');
@@ -31,6 +32,7 @@ export default function Register() {
           }
         } catch (err) {
           console.error('Auth check failed:', err);
+          navigate('/dashboard');
         }
       };
 
@@ -81,7 +83,7 @@ export default function Register() {
           <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto">
             <CheckCircle className="text-emerald-400 animate-bounce" size={28} />
           </div>
-          <h2 className="text-xl font-black text-white uppercase tracking-tight">Welcome to MargDarshan!</h2>
+          <h2 className="text-xl font-black text-white uppercase tracking-tight">Welcome to Margदर्शन!</h2>
           <p className="text-slate-400 text-sm">
             Your account has been created successfully. Setting up your dashboard...
           </p>

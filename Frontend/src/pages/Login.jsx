@@ -31,15 +31,16 @@ export default function Login() {
         return;
       }
 
+      const anyTotp = factorsData?.totp?.length > 0;
       const verifiedFactor = factorsData?.totp?.find(f => f.status === 'verified');
 
-      // If no MFA is set up, force enrollment
-      if (!verifiedFactor) {
+      // If no MFA factor at all, force enrollment
+      if (!anyTotp) {
         navigate('/mfa/enroll');
         return;
       }
 
-      // If MFA exists, require the challenge
+      // If MFA factor exists (verified or not), require the challenge
       const { data: aalData, error: aalErr } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
       if (aalErr) {
         setError('Failed to check security settings: ' + aalErr.message);
@@ -66,7 +67,7 @@ export default function Login() {
           <div className="bg-cyan-500 p-2 rounded-lg">
             <Truck className="text-black" size={24} />
           </div>
-          <h1 className="text-2xl font-black text-white uppercase tracking-tight">MargDarshan AI</h1>
+          <h1 className="text-2xl font-black text-white tracking-tight">Margदर्शन AI</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

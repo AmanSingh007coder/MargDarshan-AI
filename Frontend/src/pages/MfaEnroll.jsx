@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Shield, Copy, CheckCircle, Loader2, AlertCircle } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 
 export default function MfaEnroll() {
   const navigate = useNavigate();
+  const enrolledRef = useRef(false);
   const [step, setStep] = useState('loading');
   const [qrUrl, setQrUrl] = useState('');
   const [secret, setSecret] = useState('');
@@ -16,6 +17,9 @@ export default function MfaEnroll() {
 
   useEffect(() => {
     async function checkAndEnroll() {
+      if (enrolledRef.current) return;
+      enrolledRef.current = true;
+
       try {
         const { data: { factors } } = await supabase.auth.mfa.listFactors();
         const verified = factors?.totp?.find(f => f.status === 'verified');
@@ -27,9 +31,10 @@ export default function MfaEnroll() {
 
         const { data, error: enrollErr } = await supabase.auth.mfa.enroll({
           factorType: 'totp',
-          issuerName: 'MargDarshan-AI',
-          friendlyName: 'MargDarshan-AI Account'
+          issuer: 'Margदर्शन',
+          friendlyName: 'Margदर्शन Account'
         });
+
         if (enrollErr) {
           setError(enrollErr.message);
           setStep('error');
