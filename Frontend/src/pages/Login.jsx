@@ -5,25 +5,56 @@ import { supabase } from '../utils/supabase';
 
 export default function Login() {
   const navigate = useNavigate();
-  const [email, setEmail]       = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError]       = useState('');
-  const [loading, setLoading]   = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
-    const { error: authErr } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (authErr) { setError(authErr.message); return; }
 
-    // Check if TOTP MFA is enrolled — redirect to /mfa challenge if so
-    const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-    if (aalData?.nextLevel === 'aal2' && aalData?.currentLevel !== 'aal2') {
-      navigate('/mfa');
-    } else {
-      navigate('/dashboard');
+    try {
+      const { error: authErr } = await supabase.auth.signInWithPassword({ email, password });
+      if (authErr) {
+        setError(authErr.message);
+        setLoading(false);
+        return;
+      }
+
+      // Check MFA factors
+      const { data: factorsData, error: factorsErr } = await supabase.auth.mfa.listFactors();
+      if (factorsErr) {
+        setError('Failed to check security settings: ' + factorsErr.message);
+        setLoading(false);
+        return;
+      }
+
+      const verifiedFactor = factorsData?.totp?.find(f => f.status === 'verified');
+
+      // If no MFA is set up, force enrollment
+      if (!verifiedFactor) {
+        navigate('/mfa/enroll');
+        return;
+      }
+
+      // If MFA exists, require the challenge
+      const { data: aalData, error: aalErr } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (aalErr) {
+        setError('Failed to check security settings: ' + aalErr.message);
+        setLoading(false);
+        return;
+      }
+
+      if (aalData?.nextLevel === 'aal2') {
+        navigate('/mfa');
+      } else {
+        navigate('/dashboard');
+      }
+    } catch (err) {
+      setError(err.message || 'An unexpected error occurred');
+      setLoading(false);
     }
   };
 
@@ -39,29 +70,51 @@ export default function Login() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="email" placeholder="Email" value={email} required
-            onChange={e => setEmail(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500 transition placeholder-slate-600"
-          />
-          <input
-            type="password" placeholder="Password" value={password} required
-            onChange={e => setPassword(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500 transition placeholder-slate-600"
-          />
-          {error && <p className="text-red-400 text-sm">{error}</p>}
+          <div>
+            <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-widest">Email</label>
+            <input
+              type="email"
+              placeholder="your@email.com"
+              value={email}
+              required
+              onChange={e => setEmail(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500 transition placeholder-slate-600"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-widest">Password</label>
+            <input
+              type="password"
+              placeholder="Your secure password"
+              value={password}
+              required
+              onChange={e => setPassword(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 p-3 rounded-xl text-white focus:outline-none focus:border-cyan-500 transition placeholder-slate-600"
+            />
+          </div>
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+              <p className="text-red-400 text-sm">{error}</p>
+            </div>
+          )}
+
           <button
-            type="submit" disabled={loading}
+            type="submit"
+            disabled={loading}
             className="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-black py-3 rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 uppercase tracking-widest text-sm"
           >
-            {loading ? <><Loader2 size={16} className="animate-spin" /> Signing in…</> : 'Enter Dashboard'}
+            {loading ? <><Loader2 size={16} className="animate-spin" /> Signing in...</> : 'Enter Dashboard'}
           </button>
         </form>
 
-        <p className="text-center text-slate-500 text-sm mt-6">
-          No account?{' '}
-          <Link to="/register" className="text-cyan-400 hover:underline">Create one</Link>
-        </p>
+        <div className="mt-6 pt-6 border-t border-white/5">
+          <p className="text-center text-slate-500 text-sm">
+            No account yet?{' '}
+            <Link to="/register" className="text-cyan-400 hover:text-cyan-300 font-semibold">Create account</Link>
+          </p>
+        </div>
       </div>
     </div>
   );

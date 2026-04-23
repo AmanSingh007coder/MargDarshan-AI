@@ -1,5 +1,13 @@
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
+import {
+  RiskIntelligenceIcon,
+  LiveReroutingIcon,
+  MultiSignalFusionIcon,
+  SeaRouteOptimizerIcon,
+  InstantAlertsIcon,
+  AICopilotIcon
+} from '../components/FeatureIcons';
 
 // ── Animated counter ──────────────────────────────────────────────────────
 function Counter({ target, suffix = '', prefix = '' }) {
@@ -84,6 +92,9 @@ function Globe() {
       { a: 4, b: 1, t: 'land', spd: 0.085 }, // Delhi-Kolkata
       { a: 2, b: 3, t: 'land', spd: 0.095 }, // Chennai-Kochi
       { a: 0, b: 3, t: 'land', spd: 0.075 }, // Mumbai-Kochi
+      { a: 4, b: 2, t: 'land', spd: 0.088 }, // Delhi-Chennai
+      { a: 1, b: 3, t: 'land', spd: 0.092 }, // Kolkata-Kochi
+      { a: 4, b: 0, t: 'land', spd: 0.085 }, // Delhi-Mumbai
 
       // Sea routes — cyan
       { a: 0, b: 6, t: 'sea', spd: 0.06 },  // Mumbai-Dubai
@@ -96,6 +107,11 @@ function Globe() {
       { a: 0, b: 9, t: 'sea', spd: 0.058 },  // Mumbai-HK
       { a: 2, b: 6, t: 'sea', spd: 0.061 },  // Chennai-Dubai
       { a: 4, b: 6, t: 'sea', spd: 0.068 },  // Delhi-Dubai (via ports)
+      { a: 1, b: 8, t: 'sea', spd: 0.063 },  // Kolkata-Shanghai
+      { a: 2, b: 5, t: 'sea', spd: 0.064 },  // Chennai-Singapore
+      { a: 3, b: 6, t: 'sea', spd: 0.069 },  // Kochi-Dubai
+      { a: 6, b: 9, t: 'sea', spd: 0.059 },  // Dubai-HK
+      { a: 5, b: 9, t: 'sea', spd: 0.061 },  // Singapore-HK
     ];
 
     // Pseudo-random stars
@@ -267,16 +283,35 @@ function Globe() {
         ctx.shadowBlur = 0;
       });
 
+      // Outer bloom glow — intense blue edge
+      for (let i = 3; i > 0; i--) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, R + i * 2.5, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(6,182,212,${0.12 / i})`;
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      }
+
+      // Strong inner bloom halo
+      const bloomHalo = ctx.createRadialGradient(cx, cy, R * 0.95, cx, cy, R * 1.15);
+      bloomHalo.addColorStop(0, 'rgba(6,182,212,0.0)');
+      bloomHalo.addColorStop(0.5, 'rgba(6,182,212,0.25)');
+      bloomHalo.addColorStop(1, 'rgba(6,182,212,0.08)');
+      ctx.fillStyle = bloomHalo;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * 1.15, 0, Math.PI * 2);
+      ctx.fill();
+
       // Globe rim stroke
       ctx.beginPath();
       ctx.arc(cx, cy, R, 0, Math.PI * 2);
       const rim = ctx.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
-      rim.addColorStop(0, 'rgba(6,182,212,0.7)');
-      rim.addColorStop(0.35, 'rgba(6,182,212,0.35)');
-      rim.addColorStop(0.7, 'rgba(6,182,212,0.1)');
-      rim.addColorStop(1, 'rgba(6,182,212,0.05)');
+      rim.addColorStop(0, 'rgba(6,182,212,0.9)');
+      rim.addColorStop(0.35, 'rgba(6,182,212,0.5)');
+      rim.addColorStop(0.7, 'rgba(6,182,212,0.15)');
+      rim.addColorStop(1, 'rgba(6,182,212,0.08)');
       ctx.strokeStyle = rim;
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 2.5;
       ctx.stroke();
 
       // Primary specular highlight (top-left, bright)
@@ -648,16 +683,22 @@ export default function Landing() {
           </h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '16px' }}>
             {[
-              { n: '01', t: 'Risk Intelligence', d: 'XGBoost scores every lat/long 0–100% using a multi-modal feature stack.' },
-              { n: '02', t: 'Live Rerouting', d: 'Dijkstra-based path optimization kicks in the moment risk crosses 80%.' },
-              { n: '03', t: 'Multi-Signal Fusion', d: 'Weather + landslide + unrest data fused into a single risk score.' },
-              { n: '04', t: 'Sea-Route Optimizer', d: 'Open-Meteo Marine API selects lowest wave/swell path automatically.' },
-              { n: '05', t: 'Instant Alerts', d: 'Email, SMS, and in-app pings the moment a shipment nears danger.' },
-              { n: '06', t: 'AI Co-Pilot', d: 'Ask anything in plain language — "which ships are at risk tonight?"' },
-            ].map(({ n, t, d }) => (
+              { n: '01', t: 'Risk Intelligence', d: 'XGBoost scores every lat/long 0-100% using a multi-modal feature stack.', icon: RiskIntelligenceIcon },
+              { n: '02', t: 'Live Rerouting', d: 'Dijkstra-based path optimization kicks in the moment risk crosses 80%.', icon: LiveReroutingIcon },
+              { n: '03', t: 'Multi-Signal Fusion', d: 'Weather + landslide + unrest data fused into a single risk score.', icon: MultiSignalFusionIcon },
+              { n: '04', t: 'Sea-Route Optimizer', d: 'Open-Meteo Marine API selects lowest wave/swell path automatically.', icon: SeaRouteOptimizerIcon },
+              { n: '05', t: 'Instant Alerts', d: 'Email, SMS, and in-app pings the moment a shipment nears danger.', icon: InstantAlertsIcon },
+              { n: '06', t: 'AI Co-Pilot', d: 'Ask anything in plain language - "which ships are at risk tonight?"', icon: AICopilotIcon },
+            ].map(({ n, t, d, icon: IconComponent }) => (
               <div key={n} className="feat-card">
                 <span style={{ position: 'absolute', top: '18px', right: '20px', fontSize: '11px', color: 'rgba(255,255,255,0.1)', fontWeight: 600, letterSpacing: '0.06em' }}>{n}</span>
-                <div style={{ width: '40px', height: '40px', background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.15)', borderRadius: '10px', marginBottom: '16px' }} />
+                <div style={{ marginBottom: '16px' }}>
+                  {IconComponent ? (
+                    <IconComponent size={48} />
+                  ) : (
+                    <div style={{ width: '48px', height: '48px', background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.15)', borderRadius: '10px' }} />
+                  )}
+                </div>
                 <p style={{ fontSize: '15px', fontWeight: 700, color: '#f1f5f9', marginBottom: '8px' }}>{t}</p>
                 <p style={{ fontSize: '13px', color: '#475569', lineHeight: 1.65 }}>{d}</p>
               </div>

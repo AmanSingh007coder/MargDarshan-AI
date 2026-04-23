@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Shield, RefreshCw, AlertTriangle, Ban,
   Activity, Zap, Lock, Unlock,
-  Terminal, ShieldCheck, Cpu
+  Terminal, ShieldCheck, Cpu, Key, Loader2
 } from 'lucide-react';
 import { supabase } from '../utils/supabase';
 
@@ -41,11 +42,29 @@ function StatCard({ icon: Icon, label, value, colorClass, description }) {
 }
 
 export default function SecurityDashboard() {
+  const navigate = useNavigate();
   const [events, setEvents] = useState([]);
   const [blocked, setBlocked] = useState([]);
+  const [mfaStatus, setMfaStatus] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [mfaLoading, setMfaLoading] = useState(false);
   const [tab, setTab] = useState('events');
   const [blockingIp, setBlockingIp] = useState('');
+
+  const fetchMfaStatus = useCallback(async () => {
+    try {
+      const { data: { factors } } = await supabase.auth.mfa.listFactors();
+      const totp = factors?.totp || [];
+      const verified = totp.find(f => f.status === 'verified');
+      setMfaStatus({
+        enabled: !!verified,
+        factors: totp,
+        verified: verified || null,
+      });
+    } catch (err) {
+      console.error('Failed to fetch MFA status:', err);
+    }
+  }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -56,7 +75,8 @@ export default function SecurityDashboard() {
     setEvents(evRes.data || []);
     setBlocked(blRes.data || []);
     setLoading(false);
-  }, []);
+    await fetchMfaStatus();
+  }, [fetchMfaStatus]);
 
   useEffect(() => {
     fetchData();
@@ -83,6 +103,22 @@ export default function SecurityDashboard() {
     await fetchData();
   };
 
+  const disableMfa = async () => {
+    if (!mfaStatus?.verified) return;
+    setMfaLoading(true);
+    try {
+      const { error } = await supabase.auth.mfa.unenroll({
+        factorId: mfaStatus.verified.id,
+      });
+      if (error) throw error;
+      await fetchMfaStatus();
+    } catch (err) {
+      console.error('Failed to disable MFA:', err);
+    } finally {
+      setMfaLoading(false);
+    }
+  };
+
   const criticalCount = events.filter(e => e.risk_score >= 80).length;
 
   return (
@@ -107,13 +143,13 @@ export default function SecurityDashboard() {
 
           <div className="flex items-center gap-4">
             <div className="bg-slate-900/80 backdrop-blur-md border border-slate-800 p-1.5 rounded-2xl flex shadow-inner">
-              {[['events', 'Threat Intelligence'], ['blocked', 'IP Prohibitions']].map(([key, label]) => (
+              {[['events', 'Threat Intelligence'], ['blocked', 'IP Prohibitions'], ['mfa', 'Two-Factor Auth']].map(([key, label]) => (
                 <button
                   key={key}
                   onClick={() => setTab(key)}
                   className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                    tab === key 
-                      ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-900/40 translate-y-[-1px]' 
+                    tab === key
+                      ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-900/40 translate-y-[-1px]'
                       : 'text-slate-500 hover:text-slate-200'
                   }`}
                 >
@@ -146,17 +182,107 @@ export default function SecurityDashboard() {
           />
         </div>
 
-        {/* Expanded Data Table */}
+        {/* Expanded Data Table / MFA Settings */}
         <section className="space-y-4">
           <div className="flex items-center justify-between px-2">
             <h2 className="text-xs font-black uppercase tracking-[0.25em] text-white flex items-center gap-3">
-              <Terminal size={18} className="text-cyan-400" />
-              {tab === 'events' ? 'Real-Time Event Stream' : 'Active IP Prohibitions'}
+              {tab === 'mfa' ? (
+                <><Key size={18} className="text-cyan-400" /> Two-Factor Authentication</>
+              ) : tab === 'events' ? (
+                <><Terminal size={18} className="text-cyan-400" /> Real-Time Event Stream</>
+              ) : (
+                <><Ban size={18} className="text-cyan-400" /> Active IP Prohibitions</>
+              )}
             </h2>
-            <span className="text-[10px] font-mono text-slate-500">Showing last 100 entries</span>
+            {tab !== 'mfa' && <span className="text-[10px] font-mono text-slate-500">Showing last 100 entries</span>}
           </div>
 
-          <div className="bg-[#050810]/80 backdrop-blur-xl border border-slate-800/50 rounded-3xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+          {tab === 'mfa' ? (
+            <div className="bg-[#050810]/80 backdrop-blur-xl border border-slate-800/50 rounded-3xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] p-8">
+              <div className="space-y-6">
+                <div className="flex items-start gap-6">
+                  <div className="p-6 bg-cyan-500/10 border border-cyan-500/20 rounded-2xl">
+                    <ShieldCheck size={48} className="text-cyan-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-xl font-black text-white uppercase tracking-tight mb-2">
+                      Two-Factor Authentication (MFA)
+                    </h3>
+                    <p className="text-slate-400 text-sm mb-4">
+                      Add an extra layer of security to your account with Google Authenticator or similar apps.
+                    </p>
+
+                    {mfaStatus ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-4 bg-[#020617] rounded-xl p-4 border border-slate-800">
+                          <div className={`w-4 h-4 rounded-full ${mfaStatus.enabled ? 'bg-emerald-500' : 'bg-slate-600'}`} />
+                          <div className="flex-1">
+                            <p className="font-semibold text-white">
+                              MFA Status: <span className={mfaStatus.enabled ? 'text-emerald-400' : 'text-slate-400'}>
+                                {mfaStatus.enabled ? 'ACTIVE' : 'INACTIVE'}
+                              </span>
+                            </p>
+                            <p className="text-xs text-slate-400 mt-1">
+                              {mfaStatus.enabled
+                                ? 'Your account is protected with two-factor authentication.'
+                                : 'Enable MFA to secure your account with an authenticator app.'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          {mfaStatus.enabled && (
+                            <button
+                              onClick={disableMfa}
+                              disabled={mfaLoading}
+                              className="flex items-center justify-center gap-2 px-4 py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-xl font-black text-sm uppercase tracking-widest transition disabled:opacity-50"
+                            >
+                              {mfaLoading ? <Loader2 size={16} className="animate-spin" /> : <Lock size={16} />}
+                              Disable MFA
+                            </button>
+                          )}
+
+                          {!mfaStatus.enabled && (
+                            <button
+                              onClick={() => navigate('/mfa/enroll')}
+                              className="flex items-center justify-center gap-2 px-4 py-3 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 rounded-xl font-black text-sm uppercase tracking-widest transition"
+                            >
+                              <Key size={16} />
+                              Enable MFA
+                            </button>
+                          )}
+
+                          <button
+                            onClick={fetchMfaStatus}
+                            disabled={mfaLoading}
+                            className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-500/10 hover:bg-slate-500/20 text-slate-400 border border-slate-500/20 rounded-xl font-black text-sm uppercase tracking-widest transition disabled:opacity-50"
+                          >
+                            {mfaLoading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                            Refresh Status
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 size={24} className="text-cyan-400 animate-spin" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/40 rounded-lg p-4 text-sm space-y-2 text-slate-400">
+                  <p className="font-semibold text-white text-xs uppercase">How it works:</p>
+                  <ul className="space-y-2 text-xs list-disc list-inside">
+                    <li>Download Google Authenticator, Microsoft Authenticator, or Authy</li>
+                    <li>Scan the QR code during MFA setup</li>
+                    <li>You will need a 6-digit code from your app every time you log in</li>
+                    <li>Keep your backup code in a safe place</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-[#050810]/80 backdrop-blur-xl border border-slate-800/50 rounded-3xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse table-fixed">
                 <thead>
@@ -241,7 +367,8 @@ export default function SecurityDashboard() {
                 <p className="text-slate-600 font-bold uppercase tracking-widest text-xs">No threats detected in local airspace</p>
               </div>
             )}
-          </div>
+            </div>
+          )}
         </section>
       </div>
     </div>

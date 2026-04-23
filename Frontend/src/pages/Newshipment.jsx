@@ -461,7 +461,7 @@ export default function NewShipment() {
             icon={<Truck size={44} className="text-cyan-400" />}
             title="Land"
             subtitle="Road Freight"
-            description="5 high-risk corridors across India's mountain passes and monsoon zones."
+            description="5 strategic corridors with AI-powered safety optimization and autonomous rerouting."
             stats={[
               { label: 'Corridors', value: '5' },
 
@@ -478,9 +478,9 @@ export default function NewShipment() {
             icon={<Ship size={44} className="text-sky-400" />}
             title="Water"
             subtitle="Maritime"
-            description="Indian Ocean & Arabian Sea routes with live weather and wave alerts."
+            description="12+ optimal maritime routes with real-time weather intelligence and marine safety optimization."
             stats={[
-              { label: 'Routes', value: '12' },
+              { label: 'Routes', value: '12+' },
 
               { label: 'Wave Data', value: 'LIVE' },
             ]}
