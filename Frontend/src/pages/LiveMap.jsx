@@ -135,10 +135,45 @@ function getCurrentPosition(waypoints, createdAt, speedKmph, fixedDistanceKm = n
   return { lat: waypoints.at(-1)[0], lng: waypoints.at(-1)[1], progress: 1, coveredKm: Math.round(totalKm), totalKm: Math.round(totalKm), remainingKm: 0, etaHours: '0' };
 }
 
-function makeMarkerIcon(emoji, color) {
+function makeMarkerIcon(type, color) {
+  const isWater = type === 'water';
+
+  const truckSvg = `
+    <rect x="2" y="5" width="12" height="10" rx="1.5" stroke="white" stroke-width="1.8" fill="none"/>
+    <path d="M14 9h5.5L22 13.5V16H14V9z" stroke="white" stroke-width="1.8" fill="none" stroke-linejoin="round"/>
+    <rect x="15.5" y="10" width="4" height="2.5" rx="0.5" fill="rgba(255,255,255,0.25)" stroke="none"/>
+    <circle cx="6.5" cy="18.5" r="2.2" stroke="white" stroke-width="1.8" fill="none"/>
+    <circle cx="18" cy="18.5" r="2.2" stroke="white" stroke-width="1.8" fill="none"/>
+    <line x1="8.7" y1="18.5" x2="15.8" y2="18.5" stroke="white" stroke-width="1.8"/>`;
+
+  const shipSvg = `
+    <rect x="8" y="3" width="8" height="7" rx="1" stroke="white" stroke-width="1.8" fill="none"/>
+    <rect x="10" y="1" width="4" height="3" rx="0.5" stroke="white" stroke-width="1.5" fill="none"/>
+    <path d="M3 10h18l-2 8H5L3 10z" stroke="white" stroke-width="1.8" fill="none" stroke-linejoin="round"/>
+    <path d="M1.5 21c2.5-1.5 5-1.5 7 0s4.5 1.5 7 0 4-1.5 6-0.5" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round"/>`;
+
   return L.divIcon({
-    html: `<div style="font-size:24px;line-height:1;filter:drop-shadow(0 0 8px ${color});">${emoji}</div>`,
-    className: '', iconSize: [32,32], iconAnchor: [16,16], popupAnchor: [0,-20],
+    html: `
+      <div style="position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;">
+        <div class="marker-pulse-ring" style="
+          position:absolute;inset:0;border-radius:50%;
+          border:2px solid ${color};
+          box-sizing:border-box;
+        "></div>
+        <div style="
+          position:absolute;inset:3px;border-radius:50%;
+          background:rgba(5,8,16,0.92);
+          border:2px solid ${color};
+          box-shadow:0 0 8px ${color},0 0 18px ${color}66;
+        "></div>
+        <svg viewBox="0 0 24 24" width="22" height="22" style="position:relative;z-index:1;">
+          ${isWater ? shipSvg : truckSvg}
+        </svg>
+      </div>`,
+    className: '',
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
+    popupAnchor: [0, -26],
   });
 }
 
@@ -255,14 +290,20 @@ export default function LiveMap() {
       const isRerouted = !!reroutes[s.id];
 
       if (s.id === selectedId && currentWps && pos) {
-        const isWater  = s.type === 'water';
-        const doneColor = isWater ? '#00d9ff' : '#f97316';
-        const restColor = isWater ? '#0c4a6e' : '#431407';
+        // Green = covered, Blue = remaining, Orange = reroute reference
+        const doneColor = '#22c55e';
+        const restColor = '#3b82f6';
 
-        // Draw full route in dark type-specific color (remaining path)
+        // Remaining path — soft base + CSS-filter blue glow (always sync for reroutes)
+        if (!polyRefs.current[`${s.id}_rest_g`]) {
+          polyRefs.current[`${s.id}_rest_g`] = L.polyline(currentWps, { color: restColor, weight: 10, opacity: 0.18 }).addTo(map);
+        } else {
+          polyRefs.current[`${s.id}_rest_g`].setLatLngs(currentWps);
+        }
         if (!polyRefs.current[s.id]) {
-          const fullPoly = L.polyline(currentWps, { color: restColor, weight: 3, opacity: 0.7 }).addTo(map);
-          polyRefs.current[s.id] = fullPoly;
+          polyRefs.current[s.id] = L.polyline(currentWps, { color: restColor, weight: 3, opacity: 1, className: 'trail-glow-blue' }).addTo(map);
+        } else {
+          polyRefs.current[s.id].setLatLngs(currentWps);
         }
 
         // Build done waypoints
@@ -272,7 +313,6 @@ export default function LiveMap() {
         for (let i = 1; i < currentWps.length; i++) {
           const seg = haversineKm(currentWps[i-1][0], currentWps[i-1][1], currentWps[i][0], currentWps[i][1]);
           if (covered + seg > targetKm) {
-            // Add interpolated point at exact progress position
             const t = (targetKm - covered) / seg;
             donePts.push([
               currentWps[i-1][0] + (currentWps[i][0] - currentWps[i-1][0]) * t,
@@ -284,22 +324,27 @@ export default function LiveMap() {
           donePts.push(currentWps[i]);
         }
 
-        // Draw completed portion in bright color
+        // Completed path — soft base + CSS-filter green glow
+        if (!polyRefs.current[`${s.id}_done_g1`]) {
+          polyRefs.current[`${s.id}_done_g1`] = L.polyline(donePts, { color: doneColor, weight: 10, opacity: 0.2 }).addTo(map);
+        } else {
+          polyRefs.current[`${s.id}_done_g1`].setLatLngs(donePts);
+        }
         if (!polyRefs.current[`${s.id}_done`]) {
-          const donePoly = L.polyline(donePts, { color: doneColor, weight: 5, opacity: 1 }).addTo(map);
-          polyRefs.current[`${s.id}_done`] = donePoly;
+          polyRefs.current[`${s.id}_done`] = L.polyline(donePts, { color: doneColor, weight: 3, opacity: 1, className: 'trail-glow-green' }).addTo(map);
         } else {
           polyRefs.current[`${s.id}_done`].setLatLngs(donePts);
         }
 
-        // Show original route in faded white if rerouted (for reference)
+        // Rerouted original path — glowing orange dashed reference
         if (isRerouted && originalWps && !polyRefs.current[`${s.id}_original`]) {
-          const origPoly = L.polyline(originalWps, { color: '#94a3b8', weight: 2, opacity: 0.25, dashArray: '5,5' }).addTo(map);
-          polyRefs.current[`${s.id}_original`] = origPoly;
+          polyRefs.current[`${s.id}_original`] = L.polyline(originalWps, {
+            color: '#f97316', weight: 2.5, opacity: 1, dashArray: '6,6', className: 'trail-glow-orange',
+          }).addTo(map);
         }
       } else {
         // Hide other routes
-        ['', '_done', '_original'].forEach(suffix => {
+        ['', '_rest_g', '_done_g1', '_done', '_original'].forEach(suffix => {
           const key = `${s.id}${suffix}`;
           if (polyRefs.current[key]) {
             map.removeLayer(polyRefs.current[key]);
@@ -314,7 +359,6 @@ export default function LiveMap() {
     const risk = risks[selectedId] || { score: 0, severity: 'LOW' };
     const shipment = shipments.find(s => s.id === selectedId);
     const color = riskColor(risk.score);
-    const emoji = shipment?.type === 'water' ? '🚢' : '🚛';
 
     if (pos && shipment) {
       const reason = getCriticalityReason(risk);
@@ -345,10 +389,10 @@ export default function LiveMap() {
       if (markerRefs.current[selectedId]) {
         markerRefs.current[selectedId]
           .setLatLng([pos.lat, pos.lng])
-          .setIcon(makeMarkerIcon(emoji, color));
+          .setIcon(makeMarkerIcon(shipment?.type, color));
         markerRefs.current[selectedId].getPopup()?.setContent(popupHtml);
       } else {
-        const m = L.marker([pos.lat, pos.lng], { icon: makeMarkerIcon(emoji, color) })
+        const m = L.marker([pos.lat, pos.lng], { icon: makeMarkerIcon(shipment?.type, color) })
           .bindPopup(popupHtml, { maxWidth: 280, closeButton: false })
           .addTo(map);
         markerRefs.current[selectedId] = m;
